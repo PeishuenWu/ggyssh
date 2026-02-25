@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GgySSH Bridge</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <style>
+        body { background: #1a1a1a; color: #fff; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        #login-form { padding: 20px; background: #333; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+        #login-form .input-group { display: flex; flex-direction: column; gap: 5px; }
+        #login-form input, #login-form select, #login-form textarea { padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
+        #login-form button { padding: 8px 16px; border-radius: 4px; border: none; background: #007bff; color: #fff; cursor: pointer; align-self: flex-end; }
+        #terminal-container { flex: 1; padding: 10px; overflow: hidden; }
+        #upload-area { padding: 10px; background: #333; border-top: 1px solid #444; display: flex; align-items: center; gap: 10px; }
+        .hidden { display: none !important; }
+        textarea { width: 300px; height: 100px; font-family: monospace; font-size: 10px; }
+        label { font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    </style>
+</head>
+<body>
+    <div id="login-form">
+        <div class="input-group">
+            <input id="host" placeholder="Host" value="localhost" />
+            <input id="port" placeholder="Port" value="22" type="number" style="width: 80px;" />
+        </div>
+        <div class="input-group">
+            <input id="user" placeholder="Username" />
+            <select id="auth_type" onchange="toggleAuth()">
+                <option value="password">Password</option>
+                <option value="key">Private Key</option>
+            </select>
+        </div>
+        <div id="password-input" class="input-group">
+            <input id="pass" placeholder="Password" type="password" />
+        </div>
+        <div id="key-input" class="input-group hidden">
+            <textarea id="key" placeholder="Paste Private Key (id_rsa) here..."></textarea>
+        </div>
+        <button onclick="connect()">Connect</button>
+    </div>
+
+    <div id="terminal-container"></div>
+
+    <div id="upload-area" class="hidden">
+        <input type="file" id="fileInput" />
+        <input type="text" id="remotePath" placeholder="Remote Path" />
+        <label>
+            <input type="checkbox" id="autoInputPath" checked /> 自动在终端输入路径
+        </label>
+        <button onclick="uploadFile()">Upload via SFTP</button>
+        <span id="upload-status"></span>
+    </div>
+
+    <script>
+        function toggleAuth() {
+            const type = document.getElementById('auth_type').value;
+            document.getElementById('password-input').classList.toggle('hidden', type === 'key');
+            document.getElementById('key-input').classList.toggle('hidden', type === 'password');
+        }
+
+        const term = new Terminal({ 
+            theme: { background: '#1a1a1a' }, 
+            cursorBlink: true,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            fontSize: 14
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal-container'));
+        fitAddon.fit();
+
+        let socket;
+
+        term.onData(data => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(data);
+            }
+        });
+
+        function connect() {
+            const host = document.getElementById('host').value;
+            const port = parseInt(document.getElementById('port').value);
+            const user = document.getElementById('user').value;
+            const auth_type = document.getElementById('auth_type').value;
+            const pass = document.getElementById('pass').value;
+            const key = document.getElementById('key').value;
+
+            if (socket) socket.close();
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            socket.binaryType = 'arraybuffer';
+
+            socket.onopen = () => {
+                socket.send(JSON.stringify({ host, port, user, auth_type, pass, key }));
+                document.getElementById('login-form').classList.add('hidden');
+                document.getElementById('upload-area').classList.remove('hidden');
+                term.focus();
+            };
+
+            socket.onmessage = (e) => {
+                term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+            };
+
+            socket.onclose = () => {
+                term.write('\r\nConnection closed\r\n');
+                document.getElementById('login-form').classList.remove('hidden');
+                document.getElementById('upload-area').classList.add('hidden');
+            };
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const remotePath = document.getElementById('remotePath').value;
+            const status = document.getElementById('upload-status');
+            const autoInput = document.getElementById('autoInputPath').checked;
+
+            if (!fileInput.files.length || !remotePath) return alert("Select file and path");
+
+            const file = fileInput.files[0];
+            let finalPath = remotePath;
+            if (finalPath.endsWith('/') || !finalPath.split('/').pop().includes('.')) {
+                if (!finalPath.endsWith('/')) finalPath += '/';
+                finalPath += file.name;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('path', finalPath);
+            formData.append('host', document.getElementById('host').value);
+            formData.append('port', document.getElementById('port').value);
+            formData.append('user', document.getElementById('user').value);
+            formData.append('auth_type', document.getElementById('auth_type').value);
+            formData.append('pass', document.getElementById('pass').value);
+            formData.append('key', document.getElementById('key').value);
+
+            status.innerText = "Uploading...";
+            try {
+                const resp = await fetch('/upload', { method: 'POST', body: formData });
+                const result = await resp.text();
+                status.innerText = result;
+
+                if (result === "Success" && autoInput) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        // 仅发送路径，不加换行符
+                        socket.send(finalPath);
+                    }
+                }
+            } catch (e) { status.innerText = "Error: " + e.message; }
+        }
+
+        window.onresize = () => fitAddon.fit();
+        fetch('/config').then(r => r.json()).then(data => {
+            if (data.default_ssh_host) document.getElementById('host').value = data.default_ssh_host;
+            if (data.default_ssh_port) document.getElementById('port').value = data.default_ssh_port;
+        }).catch(e => console.error("Config load failed", e));
+    </script>
+</body>
+</html>
