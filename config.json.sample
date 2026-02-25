@@ -1,0 +1,5 @@
+{
+  "server_port": "8080",
+  "default_ssh_host": "127.0.0.1",
+  "default_ssh_port": 22
+}
