@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -35,6 +36,12 @@ type SSHCredentials struct {
 	AuthType string `json:"auth_type"`
 	Password string `json:"pass"`
 	Key      string `json:"key"`
+}
+
+type WSControlMessage struct {
+	Type string `json:"type"`
+	Cols int    `json:"cols"`
+	Rows int    `json:"rows"`
 }
 
 func loadConfig() {
@@ -171,24 +178,50 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	wsOut := &wsWriter{
+		conn: conn,
+		mu:   &sync.Mutex{},
+	}
+
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); io.Copy(stdin, &wsReader{conn}) }()
-	go func() { defer wg.Done(); io.Copy(&wsWriter{conn}, io.MultiReader(stdout, stderr)) }()
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		readWebSocketInput(conn, stdin, session)
+	}()
+	go func() { defer wg.Done(); io.Copy(wsOut, stdout) }()
+	go func() { defer wg.Done(); io.Copy(wsOut, stderr) }()
 	wg.Wait()
 }
 
-type wsReader struct{ conn *websocket.Conn }
-func (r *wsReader) Read(p []byte) (int, error) {
-	_, msg, err := r.conn.ReadMessage()
-	if err != nil {
-		return 0, err
+func readWebSocketInput(conn *websocket.Conn, stdin io.Writer, session *ssh.Session) {
+	for {
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		if msgType == websocket.TextMessage {
+			var ctrl WSControlMessage
+			if err := json.Unmarshal(msg, &ctrl); err == nil && ctrl.Type == "resize" && ctrl.Cols > 0 && ctrl.Rows > 0 {
+				_ = session.WindowChange(ctrl.Rows, ctrl.Cols)
+				continue
+			}
+		}
+
+		if _, err := stdin.Write(msg); err != nil {
+			return
+		}
 	}
-	return copy(p, msg), nil
 }
 
-type wsWriter struct{ conn *websocket.Conn }
+type wsWriter struct {
+	conn *websocket.Conn
+	mu   *sync.Mutex
+}
 func (w *wsWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	err := w.conn.WriteMessage(websocket.BinaryMessage, p)
 	return len(p), err
 }
@@ -240,7 +273,20 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sftpClient.Close()
 
-	dst, err := sftpClient.Create(r.FormValue("path"))
+	targetPath := r.FormValue("path")
+	if targetPath == "" {
+		http.Error(w, "Path is required", 400)
+		return
+	}
+	targetDir := path.Dir(targetPath)
+	if targetDir != "." && targetDir != "/" {
+		if err := sftpClient.MkdirAll(targetDir); err != nil {
+			http.Error(w, "Mkdir error: "+err.Error(), 500)
+			return
+		}
+	}
+
+	dst, err := sftpClient.Create(targetPath)
 	if err != nil {
 		http.Error(w, "Create error: "+err.Error(), 500)
 		return
@@ -248,6 +294,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	defer dst.Close()
 
 	io.Copy(dst, file)
-	log.Printf("Uploaded %s to %s", header.Filename, r.FormValue("path"))
+	log.Printf("Uploaded %s to %s", header.Filename, targetPath)
 	fmt.Fprint(w, "Success")
 }

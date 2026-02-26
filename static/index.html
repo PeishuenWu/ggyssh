@@ -12,7 +12,22 @@
         #login-form input, #login-form select, #login-form textarea { padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
         #login-form button { padding: 8px 16px; border-radius: 4px; border: none; background: #007bff; color: #fff; cursor: pointer; align-self: flex-end; }
         #terminal-container { flex: 1; padding: 10px; overflow: hidden; }
-        #upload-area { padding: 10px; background: #333; border-top: 1px solid #444; display: flex; align-items: center; gap: 10px; }
+        #upload-area { padding: 10px; background: #333; border-top: 1px solid #444; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        #drop-zone {
+            min-width: 220px;
+            padding: 8px 12px;
+            border: 1px dashed #777;
+            border-radius: 6px;
+            color: #ddd;
+            font-size: 12px;
+            text-align: center;
+            user-select: none;
+        }
+        #drop-zone.drag-over {
+            border-color: #3da5ff;
+            background: rgba(61, 165, 255, 0.12);
+            color: #fff;
+        }
         .hidden { display: none !important; }
         textarea { width: 300px; height: 100px; font-family: monospace; font-size: 10px; }
         label { font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
@@ -43,7 +58,9 @@
     <div id="terminal-container"></div>
 
     <div id="upload-area" class="hidden">
+        <div id="drop-zone">Drag file here</div>
         <input type="file" id="fileInput" />
+        <span id="selectedFileName"></span>
         <input type="text" id="remotePath" placeholder="Remote Path" />
         <label>
             <input type="checkbox" id="autoInputPath" checked /> 自动在终端输入路径
@@ -71,11 +88,30 @@
         fitAddon.fit();
 
         let socket;
+        let remotePathTouched = false;
+        let droppedFile = null;
+        let isUploading = false;
+        const dropZoneDefaultText = 'Drag file here';
+        const textEncoder = new TextEncoder();
+
+        function sendInput(data) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(textEncoder.encode(data));
+            }
+        }
+
+        function sendResize() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'resize',
+                    cols: term.cols,
+                    rows: term.rows
+                }));
+            }
+        }
 
         term.onData(data => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(data);
-            }
+            sendInput(data);
         });
 
         function connect() {
@@ -85,6 +121,7 @@
             const auth_type = document.getElementById('auth_type').value;
             const pass = document.getElementById('pass').value;
             const key = document.getElementById('key').value;
+            updateDefaultRemotePath();
 
             if (socket) socket.close();
 
@@ -97,6 +134,8 @@
                 document.getElementById('login-form').classList.add('hidden');
                 document.getElementById('upload-area').classList.remove('hidden');
                 term.focus();
+                fitAddon.fit();
+                sendResize();
             };
 
             socket.onmessage = (e) => {
@@ -110,15 +149,19 @@
             };
         }
 
-        async function uploadFile() {
+        function setDropZoneText(text) {
+            document.getElementById('drop-zone').innerText = text;
+        }
+
+        async function uploadFile(fileOverride = null) {
             const fileInput = document.getElementById('fileInput');
             const remotePath = document.getElementById('remotePath').value;
             const status = document.getElementById('upload-status');
             const autoInput = document.getElementById('autoInputPath').checked;
+            const file = fileOverride || droppedFile || fileInput.files[0];
 
-            if (!fileInput.files.length || !remotePath) return alert("Select file and path");
+            if (!file || !remotePath) return alert("Select file and path");
 
-            const file = fileInput.files[0];
             let finalPath = remotePath;
             if (finalPath.endsWith('/') || !finalPath.split('/').pop().includes('.')) {
                 if (!finalPath.endsWith('/')) finalPath += '/';
@@ -136,21 +179,94 @@
             formData.append('key', document.getElementById('key').value);
 
             status.innerText = "Uploading...";
+            isUploading = true;
+            setDropZoneText('Uploading 0%');
             try {
-                const resp = await fetch('/upload', { method: 'POST', body: formData });
-                const result = await resp.text();
+                const result = await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/upload');
+                    xhr.upload.onprogress = (e) => {
+                        if (!e.lengthComputable) return;
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        setDropZoneText(`Uploading ${percent}%`);
+                    };
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve(xhr.responseText);
+                        } else {
+                            reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+                        }
+                    };
+                    xhr.onerror = () => reject(new Error('Network error'));
+                    xhr.send(formData);
+                });
                 status.innerText = result;
 
                 if (result === "Success" && autoInput) {
-                    if (socket && socket.readyState === WebSocket.OPEN) {
-                        // 仅发送路径，不加换行符
-                        socket.send(finalPath);
-                    }
+                    // 仅发送路径，不加换行符
+                    sendInput(finalPath);
                 }
-            } catch (e) { status.innerText = "Error: " + e.message; }
+                setDropZoneText(`Uploaded: ${file.name}`);
+                setTimeout(() => setDropZoneText(dropZoneDefaultText), 1500);
+            } catch (e) {
+                status.innerText = "Error: " + e.message;
+                setDropZoneText(`Upload failed: ${file.name}`);
+                setTimeout(() => setDropZoneText(dropZoneDefaultText), 1800);
+            } finally {
+                isUploading = false;
+            }
         }
 
-        window.onresize = () => fitAddon.fit();
+        window.onresize = () => {
+            fitAddon.fit();
+            sendResize();
+        };
+
+        function updateDefaultRemotePath() {
+            const user = document.getElementById('user').value.trim();
+            if (!user) return;
+            const remotePath = document.getElementById('remotePath');
+            if (!remotePathTouched || remotePath.value.trim() === '') {
+                remotePath.value = `/home/${user}/Uploads`;
+            }
+        }
+
+        document.getElementById('user').addEventListener('input', updateDefaultRemotePath);
+        document.getElementById('remotePath').addEventListener('input', () => {
+            remotePathTouched = true;
+        });
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            droppedFile = null;
+            const file = e.target.files && e.target.files[0];
+            document.getElementById('selectedFileName').innerText = file ? file.name : '';
+        });
+
+        const dropZone = document.getElementById('drop-zone');
+        setDropZoneText(dropZoneDefaultText);
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults);
+        });
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'));
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'));
+        });
+        dropZone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer && e.dataTransfer.files;
+            if (files && files.length > 0) {
+                if (isUploading) return;
+                droppedFile = files[0];
+                document.getElementById('selectedFileName').innerText = droppedFile.name;
+                updateDefaultRemotePath();
+                uploadFile(droppedFile);
+            }
+        });
+
         fetch('/config').then(r => r.json()).then(data => {
             if (data.default_ssh_host) document.getElementById('host').value = data.default_ssh_host;
             if (data.default_ssh_port) document.getElementById('port').value = data.default_ssh_port;
