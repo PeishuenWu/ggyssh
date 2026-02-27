@@ -108,21 +108,15 @@
         .xterm-viewport { background-color: #000 !important; }
         .hidden { display: none !important; }
         
-        #explorer-toggle-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 45px;
-            height: 45px;
-            border-radius: 50%;
+        #bottom-control-bar {
+            height: 32px;
+            background: #1e1e1e;
+            border-top: 1px solid #333;
             display: none; /* Shown after connect */
             align-items: center;
-            justify-content: center;
+            padding: 0 10px;
             z-index: 1000;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            transition: transform 0.2s;
         }
-        #explorer-toggle-btn:hover { transform: scale(1.1); }
         
         /* Bootstrap Overrides for Dark Theme */
         .form-control, .form-select { background-color: #2a2a2a; border-color: #444; color: #eee; }
@@ -221,9 +215,11 @@
         </div>
     </div>
 
-    <button id="explorer-toggle-btn" class="btn btn-primary" onclick="toggleExplorer()" title="Toggle File Explorer">
-        <i class="bi bi-folder2-open"></i>
-    </button>
+    <div id="bottom-control-bar">
+        <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-secondary text-decoration-none" onclick="toggleExplorer()" title="Toggle File Explorer">
+            <i class="bi bi-folder2-open"></i> <span class="small ms-1">Explorer</span>
+        </button>
+    </div>
 
     <!-- Preview Modal -->
     <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
@@ -275,10 +271,12 @@
             const isHidden = explorer.classList.toggle('hidden');
             resizer.classList.toggle('hidden', isHidden);
             
-            // Update button icon
-            btn.innerHTML = isHidden ? '<i class="bi bi-folder2"></i>' : '<i class="bi bi-folder2-open"></i>';
-            btn.classList.toggle('btn-primary', !isHidden);
-            btn.classList.toggle('btn-secondary', isHidden);
+            // Update button visual
+            btn.innerHTML = isHidden ? 
+                '<i class="bi bi-folder2"></i> <span class="small ms-1">Explorer</span>' : 
+                '<i class="bi bi-folder2-open"></i> <span class="small ms-1">Explorer</span>';
+            btn.classList.toggle('text-primary', !isHidden);
+            btn.classList.toggle('text-secondary', isHidden);
 
             // Refit terminal
             setTimeout(() => {
@@ -670,7 +668,7 @@
                 document.getElementById('login-form').classList.add('hidden');
                 document.getElementById('file-explorer').classList.remove('hidden');
                 document.getElementById('resizer').classList.remove('hidden');
-                document.getElementById('explorer-toggle-btn').style.display = 'flex';
+                document.getElementById('bottom-control-bar').style.display = 'flex';
                 
                 // Restore saved path or use default home
                 const saved = localStorage.getItem('ssh_creds');
@@ -708,7 +706,7 @@
                 document.getElementById('login-form').classList.remove('hidden');
                 document.getElementById('file-explorer').classList.add('hidden');
                 document.getElementById('resizer').classList.add('hidden');
-                document.getElementById('explorer-toggle-btn').style.display = 'none';
+                document.getElementById('bottom-control-bar').style.display = 'none';
             };
         }
 
