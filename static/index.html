@@ -236,6 +236,8 @@
         const fileExplorer = document.getElementById('file-explorer');
         let isResizing = false;
 
+        terminalContainer.addEventListener('click', () => term.focus());
+
         resizer.addEventListener('mousedown', (e) => {
             isResizing = true;
             resizer.classList.add('dragging');
@@ -495,6 +497,7 @@
         function sendInput(data) {
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(textEncoder.encode(data));
+                term.focus();
             }
         }
 
