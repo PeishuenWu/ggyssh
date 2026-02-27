@@ -32,10 +32,44 @@
         }
         
         /* File Explorer */
-        #file-explorer { flex: 1; background: #1e1e1e; border-left: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; min-width: 150px; }
+        #file-explorer { flex: 1; background: #1e1e1e; border-left: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; min-width: 150px; position: relative; }
+        #file-explorer.drag-over { background: rgba(13, 110, 253, 0.05); }
+        #file-explorer.drag-over::after {
+            content: 'Drop to upload to this folder';
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(13, 110, 253, 0.1);
+            border: 2px dashed #0d6efd;
+            display: flex; align-items: center; justify-content: center;
+            color: #0d6efd; font-weight: bold; pointer-events: none; z-index: 100;
+        }
         #explorer-header { padding: 0.5rem 0.75rem; background: #252525; border-bottom: 1px solid #333; }
         #current-path { font-size: 0.75rem; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
         #explorer-list { flex: 1; overflow-y: auto; }
+
+        /* Progress Bar */
+        #upload-progress-bar {
+            height: 30px;
+            background: #252525;
+            border-top: 1px solid #333;
+            display: none;
+            align-items: center;
+            padding: 0 10px;
+            font-size: 0.75rem;
+        }
+        #progress-inner {
+            height: 4px;
+            background: #444;
+            border-radius: 2px;
+            flex: 1;
+            margin: 0 10px;
+            overflow: hidden;
+        }
+        #progress-fill {
+            height: 100%;
+            background: #0d6efd;
+            width: 0%;
+            transition: width 0.1s;
+        }
         
         /* List View Items */
         #explorer-list.list-view .file-item { 
@@ -71,40 +105,6 @@
         #explorer-list.grid-view .file-item .actions { position: absolute; top: 2px; right: 2px; visibility: hidden; }
         #explorer-list.grid-view .file-item:hover .actions { visibility: visible; }
 
-        /* Upload Area */
-        #upload-area { padding: 0.75rem 1rem; background: #1e1e1e; border-top: 1px solid #333; }
-        #drop-zone {
-            border: 2px dashed #444;
-            border-radius: 0.375rem;
-            padding: 0.5rem 1rem;
-            color: #aaa;
-            font-size: 0.875rem;
-            text-align: center;
-            transition: all 0.2s;
-            cursor: pointer;
-            white-space: nowrap;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-        #drop-zone .hover-text, .btn .hover-text {
-            max-width: 0;
-            overflow: hidden;
-            display: inline-block;
-            transition: max-width 0.3s ease, margin 0.3s ease;
-            white-space: nowrap;
-            vertical-align: bottom;
-        }
-        #drop-zone:hover .hover-text, .btn:hover .hover-text {
-            max-width: 200px;
-            margin-left: 8px;
-        }
-        #drop-zone.drag-over {
-            border-color: #0d6efd;
-            background: rgba(13, 110, 253, 0.1);
-            color: #fff;
-        }
-        
         .xterm-viewport { background-color: #000 !important; }
         .hidden { display: none !important; }
         
@@ -165,9 +165,13 @@
         <div id="resizer" class="hidden"></div>
         <div id="file-explorer" class="hidden">
             <div id="explorer-header">
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center mb-1">
                     <span id="current-path" class="fw-bold small overflow-hidden text-nowrap me-2" style="text-overflow: ellipsis;" title="/">/</span>
                     <div class="btn-group btn-group-sm flex-shrink-0">
+                        <input type="file" id="fileInput" class="hidden" />
+                        <button onclick="document.getElementById('fileInput').click()" class="btn btn-outline-success py-0 px-2" title="Upload File">
+                            <i class="bi bi-cloud-upload"></i>
+                        </button>
                         <button onclick="deleteSelected()" class="btn btn-outline-danger py-0 px-2 hidden" id="btn-delete-selected" title="Delete Selected">
                             <i class="bi bi-trash-fill"></i>
                         </button>
@@ -185,43 +189,18 @@
                         </button>
                     </div>
                 </div>
+                <!-- Hidden but functional inputs for upload logic compatibility -->
+                <input type="hidden" id="remotePath" />
+                <input type="checkbox" id="autoInputPath" checked class="hidden" />
             </div>
             <div id="explorer-list" class="list-view"></div>
-        </div>
-    </div>
-
-    <div id="upload-area" class="hidden">
-        <div class="container-fluid">
-            <div class="row g-2 align-items-center">
-                <div class="col-md-3">
-                    <div id="drop-zone">
-                        <i class="bi bi-cloud-upload"></i><span class="hover-text">Drag or Click to Upload</span>
-                    </div>
-                    <input type="file" id="fileInput" class="hidden" />
+            <!-- Bottom Progress Bar -->
+            <div id="upload-progress-bar">
+                <span id="upload-status-text" style="min-width: 80px;">Ready</span>
+                <div id="progress-inner">
+                    <div id="progress-fill"></div>
                 </div>
-                <div class="col-md-auto">
-                    <span id="selectedFileName" class="badge bg-dark text-info"></span>
-                </div>
-                <div class="col-md">
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text"><i class="bi bi-folder-symlink"></i></span>
-                        <input type="text" id="remotePath" class="form-control" placeholder="Remote Path" />
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="autoInputPath" checked>
-                        <label class="form-check-label small" for="autoInputPath">Auto-Input</label>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <button class="btn btn-success btn-sm" onclick="uploadFile()">
-                        <i class="bi bi-upload"></i><span class="hover-text">Upload</span>
-                    </button>
-                </div>
-                <div class="col text-end">
-                    <span id="upload-status" class="small text-warning"></span>
-                </div>
+                <span id="upload-percent">0%</span>
             </div>
         </div>
     </div>
@@ -650,7 +629,6 @@
             socket.onopen = () => {
                 socket.send(JSON.stringify({ host, port, user, auth_type, pass, key }));
                 document.getElementById('login-form').classList.add('hidden');
-                document.getElementById('upload-area').classList.remove('hidden');
                 document.getElementById('file-explorer').classList.remove('hidden');
                 document.getElementById('resizer').classList.remove('hidden');
                 
@@ -688,20 +666,31 @@
             socket.onclose = () => {
                 term.write('\r\nConnection closed\r\n');
                 document.getElementById('login-form').classList.remove('hidden');
-                document.getElementById('upload-area').classList.add('hidden');
                 document.getElementById('file-explorer').classList.add('hidden');
                 document.getElementById('resizer').classList.add('hidden');
             };
         }
 
-        function setDropZoneText(text) {
-            document.getElementById('drop-zone').innerText = text;
+        function setUploadProgress(percent, status, show = true) {
+            const bar = document.getElementById('upload-progress-bar');
+            const fill = document.getElementById('progress-fill');
+            const percentText = document.getElementById('upload-percent');
+            const statusText = document.getElementById('upload-status-text');
+            
+            if (!show) {
+                bar.style.display = 'none';
+                return;
+            }
+            
+            bar.style.display = 'flex';
+            fill.style.width = percent + '%';
+            percentText.innerText = percent + '%';
+            statusText.innerText = status;
         }
 
         async function uploadFile(fileOverride = null) {
             const fileInput = document.getElementById('fileInput');
             const remotePath = document.getElementById('remotePath').value;
-            const status = document.getElementById('upload-status');
             const autoInput = document.getElementById('autoInputPath').checked;
             const file = fileOverride || droppedFile || fileInput.files[0];
 
@@ -723,9 +712,8 @@
             formData.append('pass', document.getElementById('pass').value);
             formData.append('key', document.getElementById('key').value);
 
-            status.innerText = "Uploading...";
             isUploading = true;
-            setDropZoneText('Uploading 0%');
+            setUploadProgress(0, 'Starting...');
             try {
                 const result = await new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
@@ -733,7 +721,7 @@
                     xhr.upload.onprogress = (e) => {
                         if (!e.lengthComputable) return;
                         const percent = Math.round((e.loaded / e.total) * 100);
-                        setDropZoneText(`Uploading ${percent}%`);
+                        setUploadProgress(percent, 'Uploading...');
                     };
                     xhr.onload = () => {
                         if (xhr.status >= 200 && xhr.status < 300) {
@@ -745,23 +733,21 @@
                     xhr.onerror = () => reject(new Error('Network error'));
                     xhr.send(formData);
                 });
-                status.innerText = result;
 
-                if (result === "Success" && autoInput) {
-                    // 仅发送路径，不加换行符
-                    sendInput(finalPath);
-                }
                 if (result === "Success") {
+                    setUploadProgress(100, 'Success');
+                    if (autoInput) sendInput(finalPath);
                     refreshFiles();
+                } else {
+                    setUploadProgress(0, 'Failed: ' + result);
                 }
-                setDropZoneText(`Uploaded: ${file.name}`);
-                setTimeout(() => setDropZoneText(dropZoneDefaultText), 1500);
+                setTimeout(() => setUploadProgress(0, '', false), 3000);
             } catch (e) {
-                status.innerText = "Error: " + e.message;
-                setDropZoneText(`Upload failed: ${file.name}`);
-                setTimeout(() => setDropZoneText(dropZoneDefaultText), 1800);
+                setUploadProgress(0, 'Error: ' + e.message);
+                setTimeout(() => setUploadProgress(0, '', false), 5000);
             } finally {
                 isUploading = false;
+                fileInput.value = ''; // Reset file input
             }
         }
 
@@ -799,36 +785,32 @@
             remotePathTouched = true;
         });
         document.getElementById('fileInput').addEventListener('change', (e) => {
-            droppedFile = null;
             const file = e.target.files && e.target.files[0];
-            document.getElementById('selectedFileName').innerText = file ? file.name : '';
+            if (file) {
+                droppedFile = null;
+                updateDefaultRemotePath();
+                uploadFile();
+            }
         });
 
-        const dropZone = document.getElementById('drop-zone');
-        dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
-
-        function setDropZoneText(text) {
-            dropZone.innerHTML = `<i class="bi bi-cloud-upload"></i><span class="hover-text">${text}</span>`;
-        }
         function preventDefaults(e) {
             e.preventDefault();
             e.stopPropagation();
         }
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, preventDefaults);
+            fileExplorer.addEventListener(eventName, preventDefaults);
         });
         ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'));
+            fileExplorer.addEventListener(eventName, () => fileExplorer.classList.add('drag-over'));
         });
         ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'));
+            fileExplorer.addEventListener(eventName, () => fileExplorer.classList.remove('drag-over'));
         });
-        dropZone.addEventListener('drop', (e) => {
+        fileExplorer.addEventListener('drop', (e) => {
             const files = e.dataTransfer && e.dataTransfer.files;
             if (files && files.length > 0) {
                 if (isUploading) return;
                 droppedFile = files[0];
-                document.getElementById('selectedFileName').innerText = droppedFile.name;
                 updateDefaultRemotePath();
                 uploadFile(droppedFile);
             }
