@@ -167,15 +167,16 @@
 
         document.addEventListener('mousemove', (e) => {
             if (!isResizing) return;
-            const containerWidth = document.getElementById('main-container').offsetWidth;
+            const container = document.getElementById('main-container');
+            const containerWidth = container.offsetWidth;
             const leftWidth = e.clientX;
             const rightWidth = containerWidth - leftWidth - resizer.offsetWidth;
             
             if (leftWidth > 200 && rightWidth > 150) {
                 terminalContainer.style.flex = 'none';
                 terminalContainer.style.width = `${leftWidth}px`;
-                fileExplorer.style.flex = 'none';
-                fileExplorer.style.width = `${rightWidth}px`;
+                fileExplorer.style.flex = '1';
+                fileExplorer.style.width = 'auto';
                 
                 fitAddon.fit();
                 sendResize();
@@ -478,13 +479,15 @@
         }
 
         window.onresize = () => {
-            // If manual widths were set, try to keep the ratio
-            if (terminalContainer.style.width) {
-                const totalWidth = document.getElementById('main-container').offsetWidth;
-                const termW = parseInt(terminalContainer.style.width);
-                const ratio = termW / totalWidth;
-                terminalContainer.style.width = (ratio * 100) + '%';
-                fileExplorer.style.width = (100 - (ratio * 100)) + '%';
+            if (terminalContainer.style.width && terminalContainer.style.width.includes('px')) {
+                const container = document.getElementById('main-container');
+                if (container) {
+                    const totalWidth = container.offsetWidth;
+                    const currentW = parseInt(terminalContainer.style.width);
+                    if (currentW > totalWidth - 160) {
+                        terminalContainer.style.width = (totalWidth - 160) + 'px';
+                    }
+                }
             }
             fitAddon.fit();
             sendResize();
