@@ -457,11 +457,7 @@ func handleSFTPAction(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Action {
 	case "delete":
-		err = sftpClient.Remove(req.Path)
-		if err != nil {
-			// Try removing directory
-			err = sftpClient.RemoveDirectory(req.Path)
-		}
+		err = recursiveDelete(sftpClient, req.Path)
 	case "rename":
 		err = sftpClient.Rename(req.Path, req.NewPath)
 	case "mkdir":
@@ -477,4 +473,30 @@ func handleSFTPAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, "Success")
+}
+
+func recursiveDelete(c *sftp.Client, remotePath string) error {
+	info, err := c.Stat(remotePath)
+	if err != nil {
+		return err
+	}
+
+	if !info.IsDir() {
+		return c.Remove(remotePath)
+	}
+
+	files, err := c.ReadDir(remotePath)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range files {
+		subPath := path.Join(remotePath, f.Name())
+		err = recursiveDelete(c, subPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	return c.RemoveDirectory(remotePath)
 }
