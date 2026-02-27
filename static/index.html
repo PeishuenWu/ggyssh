@@ -47,7 +47,7 @@
         #explorer-list.list-view .file-item .icon { font-size: 1rem; width: 1.25rem; text-align: center; }
         #explorer-list.list-view .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #explorer-list.list-view .file-item .size { color: #888; font-size: 0.75rem; }
-        #explorer-list.list-view .file-item .actions { visibility: hidden; }
+        #explorer-list.list-view .file-item .actions { visibility: hidden; display: flex; gap: 5px; }
         #explorer-list.list-view .file-item:hover .actions { visibility: visible; }
         .item-checkbox { cursor: pointer; }
 
@@ -60,6 +60,8 @@
         }
         #explorer-list.grid-view .file-item:hover { background: #2a2a2a; }
         #explorer-list.grid-view .file-item .item-checkbox { position: absolute; top: 5px; left: 5px; z-index: 5; }
+        #explorer-list.grid-view .file-item .actions { position: absolute; top: 5px; right: 5px; visibility: hidden; z-index: 5; }
+        #explorer-list.grid-view .file-item:hover .actions { visibility: visible; }
         #explorer-list.grid-view .file-item .icon { font-size: 2rem; margin-bottom: 0.25rem; }
         #explorer-list.grid-view .file-item .name { 
             font-size: 0.75rem; width: 100%; overflow: hidden; text-overflow: ellipsis; 
@@ -434,6 +436,13 @@
                 const size = file.is_dir ? '' : formatBytes(file.size);
                 
                 const checkboxHtml = `<input type="checkbox" class="form-check-input item-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleItemSelection('${fullPath}')">`;
+                const actionsHtml = `
+                    <div class="actions">
+                        <button class="btn btn-link btn-sm p-0 text-info" onclick="event.stopPropagation(); sendInput('${fullPath}')" title="Send path to terminal">
+                            <i class="bi bi-terminal"></i>
+                        </button>
+                    </div>
+                `;
 
                 if (viewMode === 'list') {
                     item.innerHTML = `
@@ -441,10 +450,12 @@
                         <span class="icon"><i class="${iconClass}"></i></span>
                         <span class="name" title="${file.name}">${file.name}</span>
                         <span class="size">${size}</span>
+                        ${actionsHtml}
                     `;
                 } else {
                     item.innerHTML = `
                         ${checkboxHtml}
+                        ${actionsHtml}
                         <span class="icon"><i class="${iconClass}"></i></span>
                         <span class="name" title="${file.name}">${file.name}</span>
                     `;
