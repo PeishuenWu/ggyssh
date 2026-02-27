@@ -268,9 +268,22 @@
             const explorer = document.getElementById('file-explorer');
             const resizer = document.getElementById('resizer');
             const btn = document.getElementById('explorer-toggle-btn');
+            const termContainer = document.getElementById('terminal-container');
             const isHidden = explorer.classList.toggle('hidden');
             resizer.classList.toggle('hidden', isHidden);
             
+            if (isHidden) {
+                // When hiding, let terminal take full width
+                termContainer.style.flex = '1';
+                termContainer.style.width = 'auto';
+            } else {
+                // When showing, if it was manually resized before, it will keep that state
+                // but we need to ensure the flex is set back to 'none' if width exists
+                if (termContainer.style.width && termContainer.style.width !== 'auto') {
+                    termContainer.style.flex = 'none';
+                }
+            }
+
             // Update button visual
             btn.innerHTML = isHidden ? 
                 '<i class="bi bi-folder2"></i> <span class="small ms-1">Explorer</span>' : 
