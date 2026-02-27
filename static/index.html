@@ -452,6 +452,8 @@
             const listContainer = document.getElementById('explorer-list');
             listContainer.innerHTML = '';
 
+            if (!files) files = [];
+
             // Back button
             if (currentExplorerPath && currentExplorerPath !== '/' && currentExplorerPath !== '.') {
                 const backItem = document.createElement('div');

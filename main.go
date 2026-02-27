@@ -191,7 +191,7 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var result []FileInfo
+	var result []FileInfo = []FileInfo{}
 	for _, f := range files {
 		result = append(result, FileInfo{
 			Name:  f.Name(),
