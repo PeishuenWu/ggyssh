@@ -376,12 +376,25 @@
             };
         }
 
+        function saveCurrentPath() {
+            const remember = document.getElementById('remember_me').checked;
+            if (remember) {
+                const saved = localStorage.getItem('ssh_creds');
+                if (saved) {
+                    const creds = JSON.parse(saved);
+                    creds.path = currentExplorerPath;
+                    localStorage.setItem('ssh_creds', JSON.stringify(creds));
+                }
+            }
+        }
+
         async function refreshFiles() {
             const listContainer = document.getElementById('explorer-list');
             listContainer.innerHTML = '<div style="padding: 10px; color: #888;">Loading...</div>';
             
             selectedItems.clear();
             updateDeleteButton();
+            saveCurrentPath();
 
             try {
                 const resp = await fetch('/sftp/list', {
@@ -532,7 +545,13 @@
             updateDefaultRemotePath();
 
             if (remember) {
-                const creds = { host, port, user, auth_type, pass, key, remember };
+                const oldSaved = localStorage.getItem('ssh_creds');
+                let path = '';
+                if (oldSaved) {
+                    const oldCreds = JSON.parse(oldSaved);
+                    path = oldCreds.path || '';
+                }
+                const creds = { host, port, user, auth_type, pass, key, remember, path };
                 localStorage.setItem('ssh_creds', JSON.stringify(creds));
             } else {
                 localStorage.removeItem('ssh_creds');
@@ -551,10 +570,25 @@
                 document.getElementById('file-explorer').classList.remove('hidden');
                 document.getElementById('resizer').classList.remove('hidden');
                 
-                currentExplorerPath = `/home/${user}`;
+                // Restore saved path or use default home
+                const saved = localStorage.getItem('ssh_creds');
+                let targetPath = `/home/${user}`;
+                if (saved) {
+                    const creds = JSON.parse(saved);
+                    if (creds.path) targetPath = creds.path;
+                }
+
+                currentExplorerPath = targetPath;
                 document.getElementById('current-path').innerText = currentExplorerPath;
+                document.getElementById('remotePath').value = currentExplorerPath + (currentExplorerPath.endsWith('/') ? '' : '/');
+                
                 setViewMode('list');
                 refreshFiles();
+
+                // Sync terminal path
+                setTimeout(() => {
+                    sendInput(`cd "${currentExplorerPath}"\r`);
+                }, 500);
 
                 term.focus();
                 fitAddon.fit();
