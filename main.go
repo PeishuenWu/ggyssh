@@ -115,6 +115,7 @@ func main() {
 	mux.HandleFunc("/upload", handleUpload)
 	mux.HandleFunc("/sftp/list", handleSFTPList)
 	mux.HandleFunc("/sftp/action", handleSFTPAction)
+	mux.HandleFunc("/sftp/raw", handleSFTPRaw)
 	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(globalConfig)
@@ -203,6 +204,66 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func handleSFTPRaw(w http.ResponseWriter, r *http.Request) {
+	// Support both GET (for tags like <img>) and POST (for initial setup)
+	// But for simple previewing, GET with query params is easier for media tags.
+	// For security in a real app, we might use temporary tokens.
+	
+	path := r.URL.Query().Get("path")
+	host := r.URL.Query().Get("host")
+	portStr := r.URL.Query().Get("port")
+	user := r.URL.Query().Get("user")
+	authType := r.URL.Query().Get("auth_type")
+	pass := r.URL.Query().Get("pass")
+	key := r.URL.Query().Get("key")
+
+	port := 22
+	fmt.Sscanf(portStr, "%d", &port)
+
+	creds := SSHCredentials{
+		Host:     host,
+		Port:     port,
+		Username: user,
+		AuthType: authType,
+		Password: pass,
+		Key:      key,
+	}
+
+	client, sftpClient, err := getSFTPClient(creds)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer client.Close()
+	defer sftpClient.Close()
+
+	src, err := sftpClient.Open(path)
+	if err != nil {
+		http.Error(w, "Open error: "+err.Error(), 500)
+		return
+	}
+	defer src.Close()
+
+	// Try to detect content type from extension
+	ext := path[len(path)-4:]
+	switch ext {
+	case ".jpg", "jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case ".mp4":
+		w.Header().Set("Content-Type", "video/mp4")
+	case ".mp3":
+		w.Header().Set("Content-Type", "audio/mpeg")
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+	}
+
+	io.Copy(w, src)
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
