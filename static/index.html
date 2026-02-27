@@ -625,7 +625,6 @@
             const pass = document.getElementById('pass').value;
             const key = document.getElementById('key').value;
             const remember = document.getElementById('remember_me').checked;
-            updateDefaultRemotePath();
 
             if (remember) {
                 const oldSaved = localStorage.getItem('ssh_creds');
@@ -783,8 +782,13 @@
             const user = document.getElementById('user').value.trim();
             if (!user) return;
             const remotePath = document.getElementById('remotePath');
+            
             if (!remotePathTouched || remotePath.value.trim() === '') {
-                remotePath.value = `/home/${user}/Uploads`;
+                if (currentExplorerPath) {
+                    remotePath.value = currentExplorerPath + (currentExplorerPath.endsWith('/') ? '' : '/');
+                } else {
+                    remotePath.value = `/home/${user}/`;
+                }
             }
         }
 
