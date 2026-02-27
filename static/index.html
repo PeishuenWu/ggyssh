@@ -11,7 +11,21 @@
         #login-form .input-group { display: flex; flex-direction: column; gap: 5px; }
         #login-form input, #login-form select, #login-form textarea { padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
         #login-form button { padding: 8px 16px; border-radius: 4px; border: none; background: #007bff; color: #fff; cursor: pointer; align-self: flex-end; }
-        #terminal-container { flex: 1; padding: 10px; overflow: hidden; }
+        #main-container { flex: 1; display: flex; overflow: hidden; }
+        #terminal-container { flex: 3; padding: 10px; overflow: hidden; }
+        #file-explorer { flex: 1; background: #252525; border-left: 1px solid #444; display: flex; flex-direction: column; overflow: hidden; }
+        #explorer-header { padding: 8px 12px; background: #333; border-bottom: 1px solid #444; display: flex; flex-direction: column; gap: 5px; }
+        #current-path { font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #explorer-list { flex: 1; overflow-y: auto; font-size: 13px; }
+        .file-item { padding: 4px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; border-bottom: 1px solid #2a2a2a; }
+        .file-item:hover { background: #333; }
+        .file-item .icon { width: 16px; text-align: center; font-size: 14px; }
+        .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item .size { color: #888; font-size: 11px; }
+        .file-item .actions { display: none; gap: 5px; }
+        .file-item:hover .actions { display: flex; }
+        .action-btn { padding: 2px 5px; font-size: 10px; background: #444; border-radius: 3px; cursor: pointer; }
+        .action-btn:hover { background: #555; }
         #upload-area { padding: 10px; background: #333; border-top: 1px solid #444; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         #drop-zone {
             min-width: 220px;
@@ -55,7 +69,19 @@
         <button onclick="connect()">Connect</button>
     </div>
 
-    <div id="terminal-container"></div>
+    <div id="main-container">
+        <div id="terminal-container"></div>
+        <div id="file-explorer" class="hidden">
+            <div id="explorer-header">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong>File Explorer</strong>
+                    <button onclick="refreshFiles()" class="action-btn">Refresh</button>
+                </div>
+                <div id="current-path">/</div>
+            </div>
+            <div id="explorer-list"></div>
+        </div>
+    </div>
 
     <div id="upload-area" class="hidden">
         <div id="drop-zone">Drag file here</div>
@@ -93,6 +119,128 @@
         let isUploading = false;
         const dropZoneDefaultText = 'Drag file here';
         const textEncoder = new TextEncoder();
+
+        let currentExplorerPath = '';
+
+        function getCreds() {
+            return {
+                host: document.getElementById('host').value,
+                port: parseInt(document.getElementById('port').value),
+                user: document.getElementById('user').value,
+                auth_type: document.getElementById('auth_type').value,
+                pass: document.getElementById('pass').value,
+                key: document.getElementById('key').value
+            };
+        }
+
+        async function refreshFiles() {
+            const listContainer = document.getElementById('explorer-list');
+            listContainer.innerHTML = '<div style="padding: 10px; color: #888;">Loading...</div>';
+            
+            try {
+                const resp = await fetch('/sftp/list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ...getCreds(),
+                        path: currentExplorerPath || '.'
+                    })
+                });
+                
+                if (!resp.ok) throw new Error(await resp.text());
+                
+                const files = await resp.json();
+                renderFileList(files);
+            } catch (e) {
+                listContainer.innerHTML = `<div style="padding: 10px; color: #f44;">Error: ${e.message}</div>`;
+            }
+        }
+
+        function renderFileList(files) {
+            const listContainer = document.getElementById('explorer-list');
+            listContainer.innerHTML = '';
+
+            // Back button
+            if (currentExplorerPath && currentExplorerPath !== '/' && currentExplorerPath !== '.') {
+                const backItem = document.createElement('div');
+                backItem.className = 'file-item';
+                backItem.innerHTML = '<span class="icon">⤴</span> <span class="name">..</span>';
+                backItem.onclick = () => {
+                    const parts = currentExplorerPath.split('/').filter(p => p);
+                    parts.pop();
+                    currentExplorerPath = '/' + parts.join('/');
+                    if (currentExplorerPath === '/') currentExplorerPath = '';
+                    document.getElementById('current-path').innerText = currentExplorerPath || '/';
+                    refreshFiles();
+                };
+                listContainer.appendChild(backItem);
+            }
+
+            // Sort: directories first
+            files.sort((a, b) => {
+                if (a.is_dir !== b.is_dir) return b.is_dir ? 1 : -1;
+                return a.name.localeCompare(b.name);
+            });
+
+            files.forEach(file => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                
+                const icon = file.is_dir ? '📁' : '📄';
+                const size = file.is_dir ? '' : formatBytes(file.size);
+                
+                item.innerHTML = `
+                    <span class="icon">${icon}</span>
+                    <span class="name" title="${file.name}">${file.name}</span>
+                    <span class="size">${size}</span>
+                    <div class="actions">
+                        <span class="action-btn" onclick="event.stopPropagation(); deleteFile('${file.name}')">Del</span>
+                    </div>
+                `;
+                
+                item.onclick = () => {
+                    if (file.is_dir) {
+                        currentExplorerPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
+                        document.getElementById('current-path').innerText = currentExplorerPath;
+                        document.getElementById('remotePath').value = currentExplorerPath + '/';
+                        refreshFiles();
+                    } else {
+                        // For files, maybe just set the upload path
+                        document.getElementById('remotePath').value = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
+                    }
+                };
+                
+                listContainer.appendChild(item);
+            });
+        }
+
+        async function deleteFile(name) {
+            if (!confirm(`Delete ${name}?`)) return;
+            const fullPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + name;
+            try {
+                const resp = await fetch('/sftp/action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ...getCreds(),
+                        action: 'delete',
+                        path: fullPath
+                    })
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+                refreshFiles();
+            } catch (e) {
+                alert("Delete failed: " + e.message);
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
 
         function sendInput(data) {
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -133,6 +281,12 @@
                 socket.send(JSON.stringify({ host, port, user, auth_type, pass, key }));
                 document.getElementById('login-form').classList.add('hidden');
                 document.getElementById('upload-area').classList.remove('hidden');
+                document.getElementById('file-explorer').classList.remove('hidden');
+                
+                currentExplorerPath = `/home/${user}`;
+                document.getElementById('current-path').innerText = currentExplorerPath;
+                refreshFiles();
+
                 term.focus();
                 fitAddon.fit();
                 sendResize();
@@ -146,6 +300,7 @@
                 term.write('\r\nConnection closed\r\n');
                 document.getElementById('login-form').classList.remove('hidden');
                 document.getElementById('upload-area').classList.add('hidden');
+                document.getElementById('file-explorer').classList.add('hidden');
             };
         }
 
@@ -205,6 +360,9 @@
                 if (result === "Success" && autoInput) {
                     // 仅发送路径，不加换行符
                     sendInput(finalPath);
+                }
+                if (result === "Success") {
+                    refreshFiles();
                 }
                 setDropZoneText(`Uploaded: ${file.name}`);
                 setTimeout(() => setDropZoneText(dropZoneDefaultText), 1500);

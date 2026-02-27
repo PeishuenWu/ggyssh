@@ -113,6 +113,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", handleWebSocket)
 	mux.HandleFunc("/upload", handleUpload)
+	mux.HandleFunc("/sftp/list", handleSFTPList)
+	mux.HandleFunc("/sftp/action", handleSFTPAction)
 	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(globalConfig)
@@ -124,6 +126,83 @@ func main() {
 	if err := http.ListenAndServe(":"+globalConfig.ServerPort, handler); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func getSFTPClient(creds SSHCredentials) (*ssh.Client, *sftp.Client, error) {
+	config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("auth config error: %v", err)
+	}
+
+	addr := fmt.Sprintf("%s:%d", creds.Host, creds.Port)
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ssh dial error: %v", err)
+	}
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("sftp client error: %v", err)
+	}
+
+	return client, sftpClient, nil
+}
+
+type FileInfo struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	IsDir bool   `json:"is_dir"`
+	Mode  string `json:"mode"`
+	Time  string `json:"time"`
+}
+
+func handleSFTPList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	var req struct {
+		SSHCredentials
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+
+	client, sftpClient, err := getSFTPClient(req.SSHCredentials)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer client.Close()
+	defer sftpClient.Close()
+
+	if req.Path == "" {
+		req.Path = "."
+	}
+
+	files, err := sftpClient.ReadDir(req.Path)
+	if err != nil {
+		http.Error(w, "ReadDir error: "+err.Error(), 500)
+		return
+	}
+
+	var result []FileInfo
+	for _, f := range files {
+		result = append(result, FileInfo{
+			Name:  f.Name(),
+			Size:  f.Size(),
+			IsDir: f.IsDir(),
+			Mode:  f.Mode().String(),
+			Time:  f.ModTime().Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -243,34 +322,26 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	port, _ := fmt.Sscanf(r.FormValue("port"), "%d")
+	if port == 0 {
+		port = 22
+	}
+
 	creds := SSHCredentials{
 		Host:     r.FormValue("host"),
-		Port:     22,
+		Port:     port,
 		Username: r.FormValue("user"),
 		AuthType: r.FormValue("auth_type"),
 		Password: r.FormValue("pass"),
 		Key:      r.FormValue("key"),
 	}
-	fmt.Sscanf(r.FormValue("port"), "%d", &creds.Port)
 
-	config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
+	client, sftpClient, err := getSFTPClient(creds)
 	if err != nil {
-		http.Error(w, "Auth error: "+err.Error(), 400)
-		return
-	}
-
-	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", creds.Host, creds.Port), config)
-	if err != nil {
-		http.Error(w, "SSH error: "+err.Error(), 500)
+		http.Error(w, err.Error(), 500)
 		return
 	}
 	defer client.Close()
-
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		http.Error(w, "SFTP error", 500)
-		return
-	}
 	defer sftpClient.Close()
 
 	targetPath := r.FormValue("path")
@@ -295,5 +366,54 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	io.Copy(dst, file)
 	log.Printf("Uploaded %s to %s", header.Filename, targetPath)
+	fmt.Fprint(w, "Success")
+}
+
+func handleSFTPAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	var req struct {
+		SSHCredentials
+		Action  string `json:"action"`
+		Path    string `json:"path"`
+		NewPath string `json:"new_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+
+	client, sftpClient, err := getSFTPClient(req.SSHCredentials)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer client.Close()
+	defer sftpClient.Close()
+
+	switch req.Action {
+	case "delete":
+		err = sftpClient.Remove(req.Path)
+		if err != nil {
+			// Try removing directory
+			err = sftpClient.RemoveDirectory(req.Path)
+		}
+	case "rename":
+		err = sftpClient.Rename(req.Path, req.NewPath)
+	case "mkdir":
+		err = sftpClient.MkdirAll(req.Path)
+	default:
+		http.Error(w, "Unknown action", 400)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
 	fmt.Fprint(w, "Success")
 }
