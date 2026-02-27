@@ -129,6 +129,12 @@
                     <label class="form-label small text-secondary">Private Key</label>
                     <textarea id="key" class="form-control form-control-sm" style="height: 31px;" placeholder="Paste Private Key..."></textarea>
                 </div>
+                <div class="col-md-auto d-flex align-items-center mb-1">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="remember_me">
+                        <label class="form-check-label small text-secondary" for="remember_me">Remember Me</label>
+                    </div>
+                </div>
                 <div class="col-md-2">
                     <button class="btn btn-primary btn-sm w-100" onclick="connect()">
                         <i class="bi bi-plug-fill"></i> Connect
@@ -522,7 +528,15 @@
             const auth_type = document.getElementById('auth_type').value;
             const pass = document.getElementById('pass').value;
             const key = document.getElementById('key').value;
+            const remember = document.getElementById('remember_me').checked;
             updateDefaultRemotePath();
+
+            if (remember) {
+                const creds = { host, port, user, auth_type, pass, key, remember };
+                localStorage.setItem('ssh_creds', JSON.stringify(creds));
+            } else {
+                localStorage.removeItem('ssh_creds');
+            }
 
             if (socket) socket.close();
 
@@ -698,6 +712,21 @@
         fetch('/config').then(r => r.json()).then(data => {
             if (data.default_ssh_host) document.getElementById('host').value = data.default_ssh_host;
             if (data.default_ssh_port) document.getElementById('port').value = data.default_ssh_port;
+            
+            // Load saved credentials after config
+            const saved = localStorage.getItem('ssh_creds');
+            if (saved) {
+                const creds = JSON.parse(saved);
+                document.getElementById('host').value = creds.host || '';
+                document.getElementById('port').value = creds.port || '22';
+                document.getElementById('user').value = creds.user || '';
+                document.getElementById('auth_type').value = creds.auth_type || 'password';
+                document.getElementById('pass').value = creds.pass || '';
+                document.getElementById('key').value = creds.key || '';
+                document.getElementById('remember_me').checked = true;
+                toggleAuth();
+                updateDefaultRemotePath();
+            }
         }).catch(e => console.error("Config load failed", e));
     </script>
 </body>
