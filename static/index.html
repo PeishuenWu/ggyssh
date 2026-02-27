@@ -2,98 +2,136 @@
 <html>
 <head>
     <title>GgySSH Bridge</title>
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Xterm -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <style>
-        body { background: #1a1a1a; color: #fff; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-        #login-form { padding: 20px; background: #333; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
-        #login-form .input-group { display: flex; flex-direction: column; gap: 5px; }
-        #login-form input, #login-form select, #login-form textarea { padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
-        #login-form button { padding: 8px 16px; border-radius: 4px; border: none; background: #007bff; color: #fff; cursor: pointer; align-self: flex-end; }
-        #main-container { flex: 1; display: flex; overflow: hidden; position: relative; }
-        #terminal-container { flex: 3; padding: 10px; overflow: hidden; min-width: 200px; }
+        body { background: #121212; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        /* Top Navigation/Login */
+        #login-form { padding: 1rem; background: #1e1e1e; border-bottom: 1px solid #333; }
+        
+        /* Main Layout */
+        #main-container { flex: 1; display: flex; overflow: hidden; position: relative; background: #000; }
+        #terminal-container { flex: 3; padding: 0; overflow: hidden; min-width: 200px; }
+        
+        /* Resizer */
         #resizer {
-            width: 6px;
+            width: 4px;
             cursor: col-resize;
-            background: #444;
+            background: #333;
             transition: background 0.2s;
             z-index: 10;
         }
         #resizer:hover, #resizer.dragging {
-            background: #007bff;
+            background: #0d6efd;
         }
-        #file-explorer { flex: 1; background: #252525; border-left: 1px solid #444; display: flex; flex-direction: column; overflow: hidden; min-width: 150px; }
-        #explorer-header { padding: 8px 12px; background: #333; border-bottom: 1px solid #444; display: flex; flex-direction: column; gap: 5px; }
-        #current-path { font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        #explorer-list { flex: 1; overflow-y: auto; font-size: 13px; }
         
-        /* List View */
-        #explorer-list.list-view .file-item { padding: 4px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; border-bottom: 1px solid #2a2a2a; }
-        #explorer-list.list-view .file-item:hover { background: #333; }
-        #explorer-list.list-view .file-item .icon { width: 16px; text-align: center; font-size: 14px; }
-        #explorer-list.list-view .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        #explorer-list.list-view .file-item .size { color: #888; font-size: 11px; }
-        #explorer-list.list-view .file-item .actions { display: none; gap: 5px; }
-        #explorer-list.list-view .file-item:hover .actions { display: flex; }
-
-        /* Grid View */
-        #explorer-list.grid-view { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px; align-content: flex-start; }
-        #explorer-list.grid-view .file-item { 
-            width: 80px; height: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; 
-            padding: 5px; cursor: pointer; border-radius: 4px; border: 1px solid transparent; text-align: center;
+        /* File Explorer */
+        #file-explorer { flex: 1; background: #1e1e1e; border-left: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; min-width: 150px; }
+        #explorer-header { padding: 0.5rem 0.75rem; background: #252525; border-bottom: 1px solid #333; }
+        #current-path { font-size: 0.75rem; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
+        #explorer-list { flex: 1; overflow-y: auto; }
+        
+        /* List View Items */
+        #explorer-list.list-view .file-item { 
+            padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; 
+            cursor: pointer; border-bottom: 1px solid #2a2a2a; font-size: 0.875rem;
+            transition: background 0.1s;
         }
-        #explorer-list.grid-view .file-item:hover { background: #333; border-color: #444; }
-        #explorer-list.grid-view .file-item .icon { font-size: 32px; margin-bottom: 5px; }
-        #explorer-list.grid-view .file-item .name { font-size: 11px; width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.2; height: 2.4em; }
-        #explorer-list.grid-view .file-item .size { display: none; }
-        #explorer-list.grid-view .file-item .actions { position: absolute; top: 2px; right: 2px; display: none; background: rgba(0,0,0,0.7); border-radius: 3px; }
-        #explorer-list.grid-view .file-item:hover .actions { display: block; }
-        #explorer-list.grid-view .file-item { position: relative; }
+        #explorer-list.list-view .file-item:hover { background: #2a2a2a; }
+        #explorer-list.list-view .file-item .icon { font-size: 1rem; width: 1.25rem; text-align: center; }
+        #explorer-list.list-view .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #explorer-list.list-view .file-item .size { color: #888; font-size: 0.75rem; }
+        #explorer-list.list-view .file-item .actions { visibility: hidden; }
+        #explorer-list.list-view .file-item:hover .actions { visibility: visible; }
 
-        .action-btn { padding: 2px 5px; font-size: 10px; background: #444; border-radius: 3px; cursor: pointer; }
-        .action-btn:hover { background: #555; }
-        #upload-area { padding: 10px; background: #333; border-top: 1px solid #444; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        /* Grid View Items */
+        #explorer-list.grid-view { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; align-content: flex-start; }
+        #explorer-list.grid-view .file-item { 
+            width: 90px; height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            padding: 0.5rem; cursor: pointer; border-radius: 0.375rem; position: relative;
+            transition: background 0.1s;
+        }
+        #explorer-list.grid-view .file-item:hover { background: #2a2a2a; }
+        #explorer-list.grid-view .file-item .icon { font-size: 2rem; margin-bottom: 0.25rem; }
+        #explorer-list.grid-view .file-item .name { 
+            font-size: 0.75rem; width: 100%; overflow: hidden; text-overflow: ellipsis; 
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; 
+            line-height: 1.2; height: 2.4em; text-align: center;
+        }
+        #explorer-list.grid-view .file-item .actions { position: absolute; top: 2px; right: 2px; visibility: hidden; }
+        #explorer-list.grid-view .file-item:hover .actions { visibility: visible; }
+
+        /* Upload Area */
+        #upload-area { padding: 0.75rem 1rem; background: #1e1e1e; border-top: 1px solid #333; }
         #drop-zone {
-            min-width: 220px;
-            padding: 8px 12px;
-            border: 1px dashed #777;
-            border-radius: 6px;
-            color: #ddd;
-            font-size: 12px;
+            border: 2px dashed #444;
+            border-radius: 0.375rem;
+            padding: 0.5rem 1rem;
+            color: #aaa;
+            font-size: 0.875rem;
             text-align: center;
-            user-select: none;
+            transition: all 0.2s;
+            cursor: pointer;
         }
         #drop-zone.drag-over {
-            border-color: #3da5ff;
-            background: rgba(61, 165, 255, 0.12);
+            border-color: #0d6efd;
+            background: rgba(13, 110, 253, 0.1);
             color: #fff;
         }
+        
+        .xterm-viewport { background-color: #000 !important; }
         .hidden { display: none !important; }
-        textarea { width: 300px; height: 100px; font-family: monospace; font-size: 10px; }
-        label { font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        
+        /* Bootstrap Overrides for Dark Theme */
+        .form-control, .form-select { background-color: #2a2a2a; border-color: #444; color: #eee; }
+        .form-control:focus, .form-select:focus { background-color: #333; border-color: #0d6efd; color: #fff; box-shadow: none; }
+        .btn-outline-secondary { color: #aaa; border-color: #444; }
+        .btn-outline-secondary:hover { background-color: #333; border-color: #555; color: #fff; }
     </style>
 </head>
 <body>
     <div id="login-form">
-        <div class="input-group">
-            <input id="host" placeholder="Host" value="localhost" />
-            <input id="port" placeholder="Port" value="22" type="number" style="width: 80px;" />
+        <div class="container-fluid">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small text-secondary">SSH Host</label>
+                    <div class="input-group input-group-sm">
+                        <input id="host" class="form-control" placeholder="Host" value="localhost" />
+                        <input id="port" class="form-control" style="max-width: 70px;" placeholder="Port" value="22" type="number" />
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-secondary">Username</label>
+                    <input id="user" class="form-control form-control-sm" placeholder="Username" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-secondary">Auth Type</label>
+                    <select id="auth_type" class="form-select form-select-sm" onchange="toggleAuth()">
+                        <option value="password">Password</option>
+                        <option value="key">Private Key</option>
+                    </select>
+                </div>
+                <div id="password-input" class="col-md-3">
+                    <label class="form-label small text-secondary">Password</label>
+                    <input id="pass" class="form-control form-control-sm" placeholder="Password" type="password" />
+                </div>
+                <div id="key-input" class="col-md-3 hidden">
+                    <label class="form-label small text-secondary">Private Key</label>
+                    <textarea id="key" class="form-control form-control-sm" style="height: 31px;" placeholder="Paste Private Key..."></textarea>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-sm w-100" onclick="connect()">
+                        <i class="bi bi-plug-fill"></i> Connect
+                    </button>
+                </div>
+            </div>
         </div>
-        <div class="input-group">
-            <input id="user" placeholder="Username" />
-            <select id="auth_type" onchange="toggleAuth()">
-                <option value="password">Password</option>
-                <option value="key">Private Key</option>
-            </select>
-        </div>
-        <div id="password-input" class="input-group">
-            <input id="pass" placeholder="Password" type="password" />
-        </div>
-        <div id="key-input" class="input-group hidden">
-            <textarea id="key" placeholder="Paste Private Key (id_rsa) here..."></textarea>
-        </div>
-        <button onclick="connect()">Connect</button>
     </div>
 
     <div id="main-container">
@@ -101,30 +139,60 @@
         <div id="resizer" class="hidden"></div>
         <div id="file-explorer" class="hidden">
             <div id="explorer-header">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <strong>File Explorer</strong>
-                    <div style="display: flex; gap: 5px;">
-                        <button onclick="setViewMode('list')" class="action-btn" id="btn-list-view">List</button>
-                        <button onclick="setViewMode('grid')" class="action-btn" id="btn-grid-view">Grid</button>
-                        <button onclick="refreshFiles()" class="action-btn">Refresh</button>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold small">Explorer</span>
+                    <div class="btn-group btn-group-sm">
+                        <button onclick="setViewMode('list')" class="btn btn-outline-secondary py-0 px-2" id="btn-list-view" title="List View">
+                            <i class="bi bi-list"></i>
+                        </button>
+                        <button onclick="setViewMode('grid')" class="btn btn-outline-secondary py-0 px-2" id="btn-grid-view" title="Grid View">
+                            <i class="bi bi-grid-3x3-gap"></i>
+                        </button>
+                        <button onclick="refreshFiles()" class="btn btn-outline-secondary py-0 px-2" title="Refresh">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
                     </div>
                 </div>
-                <div id="current-path">/</div>
+                <div id="current-path" class="text-muted">/</div>
             </div>
             <div id="explorer-list" class="list-view"></div>
         </div>
     </div>
 
     <div id="upload-area" class="hidden">
-        <div id="drop-zone">Drag file here</div>
-        <input type="file" id="fileInput" />
-        <span id="selectedFileName"></span>
-        <input type="text" id="remotePath" placeholder="Remote Path" />
-        <label>
-            <input type="checkbox" id="autoInputPath" checked /> 自动在终端输入路径
-        </label>
-        <button onclick="uploadFile()">Upload via SFTP</button>
-        <span id="upload-status"></span>
+        <div class="container-fluid">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-3">
+                    <div id="drop-zone">
+                        <i class="bi bi-cloud-upload"></i> Drag or Click to Upload
+                    </div>
+                    <input type="file" id="fileInput" class="hidden" />
+                </div>
+                <div class="col-md-auto">
+                    <span id="selectedFileName" class="badge bg-dark text-info"></span>
+                </div>
+                <div class="col-md">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-folder-symlink"></i></span>
+                        <input type="text" id="remotePath" class="form-control" placeholder="Remote Path" />
+                    </div>
+                </div>
+                <div class="col-md-auto">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="autoInputPath" checked>
+                        <label class="form-check-label small" for="autoInputPath">Auto-Input</label>
+                    </div>
+                </div>
+                <div class="col-md-auto">
+                    <button class="btn btn-success btn-sm" onclick="uploadFile()">
+                        <i class="bi bi-upload"></i> Upload
+                    </button>
+                </div>
+                <div class="col text-end">
+                    <span id="upload-status" class="small text-warning"></span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -202,9 +270,17 @@
             const listContainer = document.getElementById('explorer-list');
             listContainer.className = mode + '-view';
             
-            // Highlight active button
-            document.getElementById('btn-list-view').style.background = mode === 'list' ? '#007bff' : '#444';
-            document.getElementById('btn-grid-view').style.background = mode === 'grid' ? '#007bff' : '#444';
+            // Highlight active button using Bootstrap classes
+            const btnList = document.getElementById('btn-list-view');
+            const btnGrid = document.getElementById('btn-grid-view');
+            
+            if (mode === 'list') {
+                btnList.classList.replace('btn-outline-secondary', 'btn-primary');
+                btnGrid.classList.replace('btn-primary', 'btn-outline-secondary');
+            } else {
+                btnGrid.classList.replace('btn-outline-secondary', 'btn-primary');
+                btnList.classList.replace('btn-primary', 'btn-outline-secondary');
+            }
             
             if (cachedFiles.length > 0) {
                 renderFileList(cachedFiles);
@@ -254,7 +330,7 @@
                 const backItem = document.createElement('div');
                 backItem.className = 'file-item';
                 backItem.title = 'Go back';
-                backItem.innerHTML = `<span class="icon">${viewMode === 'list' ? '⤴' : '🔙'}</span> <span class="name">..</span>`;
+                backItem.innerHTML = `<span class="icon text-primary"><i class="bi bi-arrow-90deg-up"></i></span> <span class="name text-primary">..</span>`;
                 backItem.onclick = () => {
                     const parts = currentExplorerPath.split('/').filter(p => p);
                     parts.pop();
@@ -276,24 +352,28 @@
                 const item = document.createElement('div');
                 item.className = 'file-item';
                 
-                const icon = file.is_dir ? '📁' : '📄';
+                const iconClass = file.is_dir ? 'bi bi-folder-fill text-warning' : 'bi bi-file-earmark-text text-secondary';
                 const size = file.is_dir ? '' : formatBytes(file.size);
                 
                 if (viewMode === 'list') {
                     item.innerHTML = `
-                        <span class="icon">${icon}</span>
+                        <span class="icon"><i class="${iconClass}"></i></span>
                         <span class="name" title="${file.name}">${file.name}</span>
                         <span class="size">${size}</span>
                         <div class="actions">
-                            <span class="action-btn" onclick="event.stopPropagation(); deleteFile('${file.name}')">Del</span>
+                            <button class="btn btn-link btn-sm p-0 text-danger" onclick="event.stopPropagation(); deleteFile('${file.name}')">
+                                <i class="bi bi-trash"></i>
+                            </button>
                         </div>
                     `;
                 } else {
                     item.innerHTML = `
-                        <span class="icon">${icon}</span>
+                        <span class="icon"><i class="${iconClass}"></i></span>
                         <span class="name" title="${file.name}">${file.name}</span>
                         <div class="actions">
-                            <span class="action-btn" onclick="event.stopPropagation(); deleteFile('${file.name}')">Del</span>
+                            <button class="btn btn-dark btn-sm p-0 px-1 text-danger border-secondary" onclick="event.stopPropagation(); deleteFile('${file.name}')">
+                                <i class="bi bi-trash"></i>
+                            </button>
                         </div>
                     `;
                 }
@@ -305,7 +385,6 @@
                         document.getElementById('remotePath').value = currentExplorerPath + '/';
                         refreshFiles();
                     } else {
-                        // For files, maybe just set the upload path
                         document.getElementById('remotePath').value = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
                     }
                 };
@@ -513,7 +592,11 @@
         });
 
         const dropZone = document.getElementById('drop-zone');
-        setDropZoneText(dropZoneDefaultText);
+        dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
+
+        function setDropZoneText(text) {
+            dropZone.innerHTML = `<i class="bi bi-cloud-upload"></i> ${text}`;
+        }
         function preventDefaults(e) {
             e.preventDefault();
             e.stopPropagation();
