@@ -261,6 +261,7 @@
         let remotePathTouched = false;
         let droppedFile = null;
         let isUploading = false;
+        let lastTerminalWidth = null;
         const dropZoneDefaultText = 'Drag file here';
         const textEncoder = new TextEncoder();
 
@@ -273,14 +274,18 @@
             resizer.classList.toggle('hidden', isHidden);
             
             if (isHidden) {
+                // Save current width before hiding if it was manually set
+                if (termContainer.style.width && termContainer.style.width !== 'auto') {
+                    lastTerminalWidth = termContainer.style.width;
+                }
                 // When hiding, let terminal take full width
                 termContainer.style.flex = '1';
                 termContainer.style.width = 'auto';
             } else {
-                // When showing, if it was manually resized before, it will keep that state
-                // but we need to ensure the flex is set back to 'none' if width exists
-                if (termContainer.style.width && termContainer.style.width !== 'auto') {
+                // When showing, restore last manual width if it exists
+                if (lastTerminalWidth) {
                     termContainer.style.flex = 'none';
+                    termContainer.style.width = lastTerminalWidth;
                 }
             }
 
@@ -323,6 +328,7 @@
             if (leftWidth > 200 && rightWidth > 150) {
                 terminalContainer.style.flex = 'none';
                 terminalContainer.style.width = `${leftWidth}px`;
+                lastTerminalWidth = terminalContainer.style.width;
                 fileExplorer.style.flex = '1';
                 fileExplorer.style.width = 'auto';
                 
