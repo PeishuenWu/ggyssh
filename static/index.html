@@ -82,6 +82,22 @@
             text-align: center;
             transition: all 0.2s;
             cursor: pointer;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #drop-zone .hover-text, .btn .hover-text {
+            max-width: 0;
+            overflow: hidden;
+            display: inline-block;
+            transition: max-width 0.3s ease, margin 0.3s ease;
+            white-space: nowrap;
+            vertical-align: bottom;
+        }
+        #drop-zone:hover .hover-text, .btn:hover .hover-text {
+            max-width: 200px;
+            margin-left: 8px;
         }
         #drop-zone.drag-over {
             border-color: #0d6efd;
@@ -179,7 +195,7 @@
             <div class="row g-2 align-items-center">
                 <div class="col-md-3">
                     <div id="drop-zone">
-                        <i class="bi bi-cloud-upload"></i> Drag or Click to Upload
+                        <i class="bi bi-cloud-upload"></i><span class="hover-text">Drag or Click to Upload</span>
                     </div>
                     <input type="file" id="fileInput" class="hidden" />
                 </div>
@@ -200,7 +216,7 @@
                 </div>
                 <div class="col-md-auto">
                     <button class="btn btn-success btn-sm" onclick="uploadFile()">
-                        <i class="bi bi-upload"></i> Upload
+                        <i class="bi bi-upload"></i><span class="hover-text">Upload</span>
                     </button>
                 </div>
                 <div class="col text-end">
@@ -786,7 +802,7 @@
         dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
 
         function setDropZoneText(text) {
-            dropZone.innerHTML = `<i class="bi bi-cloud-upload"></i> ${text}`;
+            dropZone.innerHTML = `<i class="bi bi-cloud-upload"></i><span class="hover-text">${text}</span>`;
         }
         function preventDefaults(e) {
             e.preventDefault();
