@@ -11,9 +11,19 @@
         #login-form .input-group { display: flex; flex-direction: column; gap: 5px; }
         #login-form input, #login-form select, #login-form textarea { padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
         #login-form button { padding: 8px 16px; border-radius: 4px; border: none; background: #007bff; color: #fff; cursor: pointer; align-self: flex-end; }
-        #main-container { flex: 1; display: flex; overflow: hidden; }
-        #terminal-container { flex: 3; padding: 10px; overflow: hidden; }
-        #file-explorer { flex: 1; background: #252525; border-left: 1px solid #444; display: flex; flex-direction: column; overflow: hidden; }
+        #main-container { flex: 1; display: flex; overflow: hidden; position: relative; }
+        #terminal-container { flex: 3; padding: 10px; overflow: hidden; min-width: 200px; }
+        #resizer {
+            width: 6px;
+            cursor: col-resize;
+            background: #444;
+            transition: background 0.2s;
+            z-index: 10;
+        }
+        #resizer:hover, #resizer.dragging {
+            background: #007bff;
+        }
+        #file-explorer { flex: 1; background: #252525; border-left: 1px solid #444; display: flex; flex-direction: column; overflow: hidden; min-width: 150px; }
         #explorer-header { padding: 8px 12px; background: #333; border-bottom: 1px solid #444; display: flex; flex-direction: column; gap: 5px; }
         #current-path { font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #explorer-list { flex: 1; overflow-y: auto; font-size: 13px; }
@@ -71,6 +81,7 @@
 
     <div id="main-container">
         <div id="terminal-container"></div>
+        <div id="resizer" class="hidden"></div>
         <div id="file-explorer" class="hidden">
             <div id="explorer-header">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -119,6 +130,46 @@
         let isUploading = false;
         const dropZoneDefaultText = 'Drag file here';
         const textEncoder = new TextEncoder();
+
+        // Resizer logic
+        const resizer = document.getElementById('resizer');
+        const terminalContainer = document.getElementById('terminal-container');
+        const fileExplorer = document.getElementById('file-explorer');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const containerWidth = document.getElementById('main-container').offsetWidth;
+            const leftWidth = e.clientX;
+            const rightWidth = containerWidth - leftWidth - resizer.offsetWidth;
+            
+            if (leftWidth > 200 && rightWidth > 150) {
+                terminalContainer.style.flex = 'none';
+                terminalContainer.style.width = `${leftWidth}px`;
+                fileExplorer.style.flex = 'none';
+                fileExplorer.style.width = `${rightWidth}px`;
+                
+                fitAddon.fit();
+                sendResize();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('dragging');
+                document.body.style.cursor = 'default';
+                fitAddon.fit();
+                sendResize();
+            }
+        });
 
         let currentExplorerPath = '';
 
@@ -282,6 +333,7 @@
                 document.getElementById('login-form').classList.add('hidden');
                 document.getElementById('upload-area').classList.remove('hidden');
                 document.getElementById('file-explorer').classList.remove('hidden');
+                document.getElementById('resizer').classList.remove('hidden');
                 
                 currentExplorerPath = `/home/${user}`;
                 document.getElementById('current-path').innerText = currentExplorerPath;
@@ -301,6 +353,7 @@
                 document.getElementById('login-form').classList.remove('hidden');
                 document.getElementById('upload-area').classList.add('hidden');
                 document.getElementById('file-explorer').classList.add('hidden');
+                document.getElementById('resizer').classList.add('hidden');
             };
         }
 
