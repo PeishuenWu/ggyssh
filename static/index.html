@@ -49,6 +49,7 @@
         #explorer-list.list-view .file-item .size { color: #888; font-size: 0.75rem; }
         #explorer-list.list-view .file-item .actions { visibility: hidden; }
         #explorer-list.list-view .file-item:hover .actions { visibility: visible; }
+        .item-checkbox { cursor: pointer; }
 
         /* Grid View Items */
         #explorer-list.grid-view { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; align-content: flex-start; }
@@ -58,6 +59,7 @@
             transition: background 0.1s;
         }
         #explorer-list.grid-view .file-item:hover { background: #2a2a2a; }
+        #explorer-list.grid-view .file-item .item-checkbox { position: absolute; top: 5px; left: 5px; z-index: 5; }
         #explorer-list.grid-view .file-item .icon { font-size: 2rem; margin-bottom: 0.25rem; }
         #explorer-list.grid-view .file-item .name { 
             font-size: 0.75rem; width: 100%; overflow: hidden; text-overflow: ellipsis; 
@@ -142,6 +144,9 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <span class="fw-bold small">Explorer</span>
                     <div class="btn-group btn-group-sm">
+                        <button onclick="deleteSelected()" class="btn btn-outline-danger py-0 px-2 hidden" id="btn-delete-selected" title="Delete Selected">
+                            <i class="bi bi-trash-fill"></i>
+                        </button>
                         <button onclick="toggleHiddenFiles()" class="btn btn-outline-secondary py-0 px-2" id="btn-toggle-hidden" title="Toggle Hidden Files">
                             <i class="bi bi-eye-slash"></i>
                         </button>
@@ -268,6 +273,7 @@
         let viewMode = 'list'; // 'list' or 'grid'
         let showHidden = false;
         let cachedFiles = [];
+        let selectedItems = new Set();
 
         function toggleHiddenFiles() {
             showHidden = !showHidden;
@@ -276,8 +282,54 @@
             btn.classList.toggle('btn-primary', showHidden);
             btn.classList.toggle('btn-outline-secondary', !showHidden);
             
+            selectedItems.clear();
+            updateDeleteButton();
             if (cachedFiles.length > 0) {
                 renderFileList(cachedFiles);
+            }
+        }
+
+        function updateDeleteButton() {
+            const btn = document.getElementById('btn-delete-selected');
+            if (selectedItems.size > 0) {
+                btn.classList.remove('hidden');
+                btn.innerHTML = `<i class="bi bi-trash-fill"></i> (${selectedItems.size})`;
+            } else {
+                btn.classList.add('hidden');
+            }
+        }
+
+        async function deleteSelected() {
+            if (selectedItems.size === 0) return;
+            if (!confirm(`Delete ${selectedItems.size} selected items?`)) return;
+
+            const itemsToDelete = Array.from(selectedItems);
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const fullPath of itemsToDelete) {
+                try {
+                    const resp = await fetch('/sftp/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...getCreds(),
+                            action: 'delete',
+                            path: fullPath
+                        })
+                    });
+                    if (resp.ok) successCount++;
+                    else failCount++;
+                } catch (e) {
+                    failCount++;
+                }
+            }
+
+            selectedItems.clear();
+            updateDeleteButton();
+            refreshFiles();
+            if (failCount > 0) {
+                alert(`Deletion finished: ${successCount} success, ${failCount} failed.`);
             }
         }
 
@@ -318,6 +370,9 @@
             const listContainer = document.getElementById('explorer-list');
             listContainer.innerHTML = '<div style="padding: 10px; color: #888;">Loading...</div>';
             
+            selectedItems.clear();
+            updateDeleteButton();
+
             try {
                 const resp = await fetch('/sftp/list', {
                     method: 'POST',
@@ -368,32 +423,30 @@
                 if (!showHidden && file.name.startsWith('.')) {
                     return;
                 }
+                const fullPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
+                const isSelected = selectedItems.has(fullPath);
+
                 const item = document.createElement('div');
                 item.className = 'file-item';
+                if (isSelected) item.classList.add('bg-primary-subtle');
                 
                 const iconClass = file.is_dir ? 'bi bi-folder-fill text-warning' : 'bi bi-file-earmark-text text-secondary';
                 const size = file.is_dir ? '' : formatBytes(file.size);
                 
+                const checkboxHtml = `<input type="checkbox" class="form-check-input item-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleItemSelection('${fullPath}')">`;
+
                 if (viewMode === 'list') {
                     item.innerHTML = `
+                        ${checkboxHtml}
                         <span class="icon"><i class="${iconClass}"></i></span>
                         <span class="name" title="${file.name}">${file.name}</span>
                         <span class="size">${size}</span>
-                        <div class="actions">
-                            <button class="btn btn-link btn-sm p-0 text-danger" onclick="event.stopPropagation(); deleteFile('${file.name}')">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
                     `;
                 } else {
                     item.innerHTML = `
+                        ${checkboxHtml}
                         <span class="icon"><i class="${iconClass}"></i></span>
                         <span class="name" title="${file.name}">${file.name}</span>
-                        <div class="actions">
-                            <button class="btn btn-dark btn-sm p-0 px-1 text-danger border-secondary" onclick="event.stopPropagation(); deleteFile('${file.name}')">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
                     `;
                 }
                 
@@ -404,7 +457,7 @@
                         document.getElementById('remotePath').value = currentExplorerPath + '/';
                         refreshFiles();
                     } else {
-                        document.getElementById('remotePath').value = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
+                        document.getElementById('remotePath').value = fullPath;
                     }
                 };
                 
@@ -412,24 +465,14 @@
             });
         }
 
-        async function deleteFile(name) {
-            if (!confirm(`Delete ${name}?`)) return;
-            const fullPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + name;
-            try {
-                const resp = await fetch('/sftp/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        ...getCreds(),
-                        action: 'delete',
-                        path: fullPath
-                    })
-                });
-                if (!resp.ok) throw new Error(await resp.text());
-                refreshFiles();
-            } catch (e) {
-                alert("Delete failed: " + e.message);
+        function toggleItemSelection(path) {
+            if (selectedItems.has(path)) {
+                selectedItems.delete(path);
+            } else {
+                selectedItems.add(path);
             }
+            updateDeleteButton();
+            renderFileList(cachedFiles);
         }
 
         function formatBytes(bytes) {
