@@ -478,6 +478,14 @@
         }
 
         window.onresize = () => {
+            // If manual widths were set, try to keep the ratio
+            if (terminalContainer.style.width) {
+                const totalWidth = document.getElementById('main-container').offsetWidth;
+                const termW = parseInt(terminalContainer.style.width);
+                const ratio = termW / totalWidth;
+                terminalContainer.style.width = (ratio * 100) + '%';
+                fileExplorer.style.width = (100 - (ratio * 100)) + '%';
+            }
             fitAddon.fit();
             sendResize();
         };
