@@ -108,6 +108,22 @@
         .xterm-viewport { background-color: #000 !important; }
         .hidden { display: none !important; }
         
+        #explorer-toggle-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: none; /* Shown after connect */
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        #explorer-toggle-btn:hover { transform: scale(1.1); }
+        
         /* Bootstrap Overrides for Dark Theme */
         .form-control, .form-select { background-color: #2a2a2a; border-color: #444; color: #eee; }
         .form-control:focus, .form-select:focus { background-color: #333; border-color: #0d6efd; color: #fff; box-shadow: none; }
@@ -205,6 +221,10 @@
         </div>
     </div>
 
+    <button id="explorer-toggle-btn" class="btn btn-primary" onclick="toggleExplorer()" title="Toggle File Explorer">
+        <i class="bi bi-folder2-open"></i>
+    </button>
+
     <!-- Preview Modal -->
     <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-xl modal-dialog-centered">
@@ -247,6 +267,25 @@
         let isUploading = false;
         const dropZoneDefaultText = 'Drag file here';
         const textEncoder = new TextEncoder();
+
+        function toggleExplorer() {
+            const explorer = document.getElementById('file-explorer');
+            const resizer = document.getElementById('resizer');
+            const btn = document.getElementById('explorer-toggle-btn');
+            const isHidden = explorer.classList.toggle('hidden');
+            resizer.classList.toggle('hidden', isHidden);
+            
+            // Update button icon
+            btn.innerHTML = isHidden ? '<i class="bi bi-folder2"></i>' : '<i class="bi bi-folder2-open"></i>';
+            btn.classList.toggle('btn-primary', !isHidden);
+            btn.classList.toggle('btn-secondary', isHidden);
+
+            // Refit terminal
+            setTimeout(() => {
+                fitAddon.fit();
+                sendResize();
+            }, 50);
+        }
 
         // Resizer logic
         const resizer = document.getElementById('resizer');
@@ -631,6 +670,7 @@
                 document.getElementById('login-form').classList.add('hidden');
                 document.getElementById('file-explorer').classList.remove('hidden');
                 document.getElementById('resizer').classList.remove('hidden');
+                document.getElementById('explorer-toggle-btn').style.display = 'flex';
                 
                 // Restore saved path or use default home
                 const saved = localStorage.getItem('ssh_creds');
@@ -668,6 +708,7 @@
                 document.getElementById('login-form').classList.remove('hidden');
                 document.getElementById('file-explorer').classList.add('hidden');
                 document.getElementById('resizer').classList.add('hidden');
+                document.getElementById('explorer-toggle-btn').style.display = 'none';
             };
         }
 
