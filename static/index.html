@@ -18,7 +18,7 @@
             background: #121212; display: flex; align-items: center; justify-content: center; z-index: 2000; 
         }
         #login-card { 
-            width: 100%; max-width: 400px; padding: 2rem; background: #1e1e1e; 
+            width: 95%; max-width: 400px; padding: 1.5rem; background: #1e1e1e; 
             border-radius: 8px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
         #login-card .form-label { margin-bottom: 0.25rem; }
@@ -27,6 +27,23 @@
         /* Main Layout (hidden until login) */
         #main-container { flex: 1; display: flex; overflow: hidden; position: relative; background: #000; }
         #terminal-area { flex: 3; display: flex; flex-direction: column; overflow: hidden; min-width: 200px; }
+
+        /* Mobile Adjustments */
+        @media (max-width: 768px) {
+            #resizer { display: none !important; }
+            #file-explorer {
+                position: absolute; top: 0; right: 0; width: 85% !important; height: 100%;
+                z-index: 1100; border-left: 1px solid #444;
+                box-shadow: -10px 0 20px rgba(0,0,0,0.5);
+                transition: transform 0.3s ease;
+            }
+            #file-explorer.hidden {
+                display: flex !important;
+                transform: translateX(105%);
+            }
+            #terminal-area { width: 100% !important; flex: none; }
+            .nav-link span { max-width: 80px !important; }
+        }
         #terminal-tabs-bar { 
             background: #1e1e1e; border-bottom: 1px solid #333; 
             display: flex; align-items: center; padding: 0 5px;
@@ -274,13 +291,18 @@
     </div>
 
     <div id="bottom-control-bar" class="d-flex justify-content-between align-items-center">
-        <div class="d-flex align-items-center text-truncate me-3" style="max-width: 80%;">
+        <div class="d-flex align-items-center text-truncate me-2" style="max-width: 60%;">
             <i class="bi bi-folder2 text-info me-2"></i>
             <span id="current-path-display" class="small text-secondary text-truncate" title="/">/</span>
         </div>
-        <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-primary text-decoration-none flex-shrink-0" onclick="toggleExplorer()" title="Toggle File Explorer">
-            <span class="small me-1">Explorer</span> <i class="bi bi-folder2-open"></i>
-        </button>
+        <div class="d-flex align-items-center">
+            <button class="btn btn-link btn-sm p-0 text-danger text-decoration-none me-3" onclick="logout()" title="Logout">
+                <i class="bi bi-box-arrow-right"></i> <span class="small ms-1 d-none d-md-inline">Logout</span>
+            </button>
+            <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-primary text-decoration-none flex-shrink-0" onclick="toggleExplorer()" title="Toggle File Explorer">
+                <span class="small me-1">Explorer</span> <i class="bi bi-folder2-open"></i>
+            </button>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -301,13 +323,22 @@
         let lastTerminalWidth = null;
         const textEncoder = new TextEncoder();
 
+        function logout() {
+            Object.keys(tabs).forEach(id => closeTab(id));
+            tabCounter = 0;
+            sid = null;
+            document.getElementById('login-overlay').classList.remove('hidden');
+            document.getElementById('bottom-control-bar').style.display = 'none';
+            document.getElementById('file-explorer').classList.add('hidden');
+            document.getElementById('resizer').classList.add('hidden');
+        }
+
         function addTab(type = 'terminal', previewData = null) {
             if (!sid) return;
             const id = 'tab-' + (++tabCounter);
             const title = type === 'terminal' ? `Session ${tabCounter}` : `Preview: ${previewData.name}`;
             const icon = type === 'terminal' ? 'bi bi-terminal' : 'bi bi-eye';
             
-            // UI: Tab link
             const tabList = document.getElementById('terminal-tabs');
             const tabItem = document.createElement('li');
             tabItem.className = 'nav-item';
@@ -321,7 +352,6 @@
             `;
             tabList.appendChild(tabItem);
 
-            // UI: Container
             const container = document.getElementById('terminal-container');
             const instanceElem = document.createElement('div');
             instanceElem.id = `instance-${id}`;
@@ -350,15 +380,7 @@
                     term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
                 };
                 socket.onclose = () => {
-                    term.write('\r\nConnection closed\r\n');
-                    document.getElementById(`link-${id}`).classList.add('text-danger');
-                    // Check if all tabs are closed or disconnected
-                    const anyConnected = Object.values(tabs).some(t => t.socket && t.socket.readyState === WebSocket.OPEN);
-                    if (!anyConnected) {
-                        sid = null;
-                        document.getElementById('login-overlay').classList.remove('hidden');
-                        document.getElementById('bottom-control-bar').style.display = 'none';
-                    }
+                    setTimeout(() => closeTab(id), 500);
                 };
                 socket.onopen = () => sendResize(id);
 
@@ -402,20 +424,14 @@
 
         function switchTab(id) {
             if (activeTabId === id) return;
-            
-            // Hide current
             if (activeTabId && tabs[activeTabId]) {
                 tabs[activeTabId].element.classList.remove('active');
                 document.getElementById(`link-${activeTabId}`).classList.remove('active');
             }
-
             activeTabId = id;
-            
-            // Show new
             if (tabs[id]) {
                 tabs[id].element.classList.add('active');
                 document.getElementById(`link-${id}`).classList.add('active');
-                
                 if (tabs[id].type === 'terminal') {
                     setTimeout(() => {
                         tabs[id].fitAddon.fit();
@@ -428,18 +444,16 @@
 
         function closeTab(id) {
             if (!tabs[id]) return;
-            
             if (tabs[id].type === 'terminal') {
-                tabs[id].socket.close();
+                if (tabs[id].socket.readyState === WebSocket.OPEN) tabs[id].socket.close();
                 tabs[id].term.dispose();
             } else {
                 tabs[id].element.querySelectorAll('video, audio').forEach(m => { m.pause(); m.src = ""; });
                 tabs[id].element.innerHTML = '';
             }
-            
             tabs[id].element.remove();
-            document.getElementById(`nav-item-${id}`).remove();
-            
+            const navItem = document.getElementById(`nav-item-${id}`);
+            if (navItem) navItem.remove();
             delete tabs[id];
 
             if (activeTabId === id) {
@@ -447,12 +461,14 @@
                 const remainingIds = Object.keys(tabs);
                 if (remainingIds.length > 0) {
                     switchTab(remainingIds[remainingIds.length - 1]);
+                } else if (sid) {
+                    logout();
                 }
             }
         }
 
         function sendInput(data) {
-            if (activeTabId && tabs[activeTabId]) {
+            if (activeTabId && tabs[activeTabId] && tabs[activeTabId].type === 'terminal') {
                 const { socket, term } = tabs[activeTabId];
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(textEncoder.encode(data));
@@ -463,7 +479,7 @@
 
         function sendResize(id = null) {
             const targetId = id || activeTabId;
-            if (targetId && tabs[targetId]) {
+            if (targetId && tabs[targetId] && tabs[targetId].type === 'terminal') {
                 const { socket, term } = tabs[targetId];
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify({
