@@ -492,8 +492,6 @@
             currentExplorerPath = `/home/${user}`;
             updatePathDisplay(currentExplorerPath);
             refreshFiles();
-            // Sync terminal
-            sendInput(`cd "${currentExplorerPath}"\r`);
         }
 
         function updatePathDisplay(path) {
