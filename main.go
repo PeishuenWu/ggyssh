@@ -17,10 +17,14 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+type HostConfig struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+}
+
 type Config struct {
-	ServerPort     string `json:"server_port"`
-	DefaultSSHHost string `json:"default_ssh_host"`
-	DefaultSSHPort int    `json:"default_ssh_port"`
+	ServerPort string       `json:"server_port"`
+	Hosts      []HostConfig `json:"hosts"`
 }
 
 var globalConfig Config
@@ -80,9 +84,10 @@ func loadConfig() {
 	if err != nil {
 		log.Println("Config file not found, using defaults")
 		globalConfig = Config{
-			ServerPort:     "8080",
-			DefaultSSHHost: "127.0.0.1",
-			DefaultSSHPort: 22,
+			ServerPort: "8080",
+			Hosts: []HostConfig{
+				{Host: "127.0.0.1", Port: 22},
+			},
 		}
 		return
 	}

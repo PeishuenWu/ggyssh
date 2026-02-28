@@ -12,10 +12,19 @@
     <style>
         body { background: #121212; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         
-        /* Top Navigation/Login */
-        #login-form { padding: 1rem; background: #1e1e1e; border-bottom: 1px solid #333; }
+        /* Centered Login Screen */
+        #login-overlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #121212; display: flex; align-items: center; justify-content: center; z-index: 2000; 
+        }
+        #login-card { 
+            width: 100%; max-width: 400px; padding: 2rem; background: #1e1e1e; 
+            border-radius: 8px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        #login-card .form-label { margin-bottom: 0.25rem; }
+        #login-card .mb-3 { margin-bottom: 1rem !important; }
         
-        /* Main Layout */
+        /* Main Layout (hidden until login) */
         #main-container { flex: 1; display: flex; overflow: hidden; position: relative; background: #000; }
         #terminal-area { flex: 3; display: flex; flex-direction: column; overflow: hidden; min-width: 200px; }
         #terminal-tabs-bar { 
@@ -151,47 +160,46 @@
     </style>
 </head>
 <body>
-    <div id="login-form">
-        <div class="container-fluid">
-            <div class="row g-2 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label small text-secondary">SSH Host</label>
-                    <div class="input-group input-group-sm">
-                        <input id="host" class="form-control" placeholder="Host" value="localhost" />
-                        <input id="port" class="form-control" style="max-width: 70px;" placeholder="Port" value="22" type="number" />
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small text-secondary">Username</label>
-                    <input id="user" class="form-control form-control-sm" placeholder="Username" />
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small text-secondary">Auth Type</label>
-                    <select id="auth_type" class="form-select form-select-sm" onchange="toggleAuth()">
-                        <option value="password">Password</option>
-                        <option value="key">Private Key</option>
-                    </select>
-                </div>
-                <div id="password-input" class="col-md-3">
-                    <label class="form-label small text-secondary">Password</label>
-                    <input id="pass" class="form-control form-control-sm" placeholder="Password" type="password" />
-                </div>
-                <div id="key-input" class="col-md-3 hidden">
-                    <label class="form-label small text-secondary">Private Key</label>
-                    <textarea id="key" class="form-control form-control-sm" style="height: 31px;" placeholder="Paste Private Key..."></textarea>
-                </div>
-                <div class="col-md-auto d-flex align-items-center mb-1">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="remember_me">
-                        <label class="form-check-label small text-secondary" for="remember_me">Remember Me</label>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <button class="btn btn-primary btn-sm w-100" onclick="connect()">
-                        <i class="bi bi-plug-fill"></i> Connect
-                    </button>
-                </div>
+    <div id="login-overlay">
+        <div id="login-card">
+            <h4 class="text-center mb-4 text-primary"><i class="bi bi-shield-lock-fill me-2"></i>GgySSH Login</h4>
+            
+            <div class="mb-3">
+                <label class="form-label small text-secondary">SSH Host</label>
+                <select id="host-select" class="form-select"></select>
             </div>
+
+            <div class="mb-3">
+                <label class="form-label small text-secondary">Username</label>
+                <input id="user" class="form-control" placeholder="Username" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small text-secondary">Auth Type</label>
+                <select id="auth_type" class="form-select" onchange="toggleAuth()">
+                    <option value="password">Password</option>
+                    <option value="key">Private Key</option>
+                </select>
+            </div>
+
+            <div id="password-input" class="mb-3">
+                <label class="form-label small text-secondary">Password</label>
+                <input id="pass" class="form-control" placeholder="Password" type="password" />
+            </div>
+
+            <div id="key-input" class="mb-3 hidden">
+                <label class="form-label small text-secondary">Private Key</label>
+                <textarea id="key" class="form-control" style="height: 80px;" placeholder="Paste Private Key..."></textarea>
+            </div>
+
+            <div class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" id="remember_me">
+                <label class="form-check-label small text-secondary" for="remember_me">Remember Me</label>
+            </div>
+
+            <button class="btn btn-primary w-100 py-2" onclick="connect()">
+                <i class="bi bi-plug-fill me-2"></i>Connect
+            </button>
         </div>
     </div>
 
@@ -344,6 +352,13 @@
                 socket.onclose = () => {
                     term.write('\r\nConnection closed\r\n');
                     document.getElementById(`link-${id}`).classList.add('text-danger');
+                    // Check if all tabs are closed or disconnected
+                    const anyConnected = Object.values(tabs).some(t => t.socket && t.socket.readyState === WebSocket.OPEN);
+                    if (!anyConnected) {
+                        sid = null;
+                        document.getElementById('login-overlay').classList.remove('hidden');
+                        document.getElementById('bottom-control-bar').style.display = 'none';
+                    }
                 };
                 socket.onopen = () => sendResize(id);
 
@@ -639,9 +654,11 @@
         }
 
         function getCreds() {
+            const hostSelect = document.getElementById('host-select');
+            const selectedOption = hostSelect.options[hostSelect.selectedIndex];
             return {
-                host: document.getElementById('host').value,
-                port: parseInt(document.getElementById('port').value),
+                host: selectedOption ? selectedOption.dataset.host : '',
+                port: selectedOption ? parseInt(selectedOption.dataset.port) : 22,
                 user: document.getElementById('user').value,
                 auth_type: document.getElementById('auth_type').value,
                 pass: document.getElementById('pass').value,
@@ -837,6 +854,8 @@
             const creds = getCreds();
             const remember = document.getElementById('remember_me').checked;
 
+            if (!creds.host || !creds.user) return alert("Host and Username are required");
+
             // Step 1: Login to get SID
             try {
                 const resp = await fetch('/login', {
@@ -869,7 +888,7 @@
             Object.keys(tabs).forEach(id => closeTab(id));
             tabCounter = 0;
 
-            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('login-overlay').classList.add('hidden');
             document.getElementById('file-explorer').classList.remove('hidden');
             document.getElementById('resizer').classList.remove('hidden');
             document.getElementById('bottom-control-bar').style.display = 'flex';
@@ -1035,22 +1054,33 @@
         });
 
         fetch('/config').then(r => r.json()).then(data => {
-            if (data.default_ssh_host) document.getElementById('host').value = data.default_ssh_host;
-            if (data.default_ssh_port) document.getElementById('port').value = data.default_ssh_port;
+            const hostSelect = document.getElementById('host-select');
+            if (data.hosts && data.hosts.length > 0) {
+                hostSelect.innerHTML = data.hosts.map(h => 
+                    `<option value="${h.host}:${h.port}" data-host="${h.host}" data-port="${h.port}">${h.host}:${h.port}</option>`
+                ).join('');
+            }
             
             // Load saved credentials after config
             const saved = localStorage.getItem('ssh_creds');
             if (saved) {
                 const creds = JSON.parse(saved);
-                document.getElementById('host').value = creds.host || '';
-                document.getElementById('port').value = creds.port || '22';
+                
+                // Match host in select
+                const targetVal = `${creds.host}:${creds.port}`;
+                for (let i = 0; i < hostSelect.options.length; i++) {
+                    if (hostSelect.options[i].value === targetVal) {
+                        hostSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+
                 document.getElementById('user').value = creds.user || '';
                 document.getElementById('auth_type').value = creds.auth_type || 'password';
                 document.getElementById('pass').value = creds.pass || '';
                 document.getElementById('key').value = creds.key || '';
                 document.getElementById('remember_me').checked = true;
                 toggleAuth();
-                updateDefaultRemotePath();
             }
         }).catch(e => console.error("Config load failed", e));
     </script>
