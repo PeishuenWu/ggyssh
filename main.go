@@ -38,6 +38,115 @@ var (
 	sessionMutex sync.RWMutex
 )
 
+func getSSHConfig(user, authType, pass, key string) (*ssh.ClientConfig, error) {
+	var auth []ssh.AuthMethod
+	if authType == "key" {
+		if key == "" {
+			return nil, fmt.Errorf("private key is empty")
+		}
+		
+		var signer ssh.Signer
+		var err error
+		
+		signer, err = ssh.ParsePrivateKey([]byte(key))
+		if err != nil {
+			log.Printf("Non-encrypted key parse failed: %v. Attempting with passphrase.", err)
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(key), []byte(pass))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse private key: %v", err)
+			}
+		}
+		
+		// Log the public key for the user to verify against authorized_keys
+		pubKey := signer.PublicKey()
+		authorizedKey := string(ssh.MarshalAuthorizedKey(pubKey))
+		log.Printf("Parsed Key Type: %s", pubKey.Type())
+		log.Printf("Public Key for authorized_keys:\n%s", authorizedKey)
+		
+		auth = append(auth, ssh.PublicKeys(signer))
+	} else {
+		auth = append(auth, ssh.Password(pass))
+	}
+
+	return &ssh.ClientConfig{
+		User:            user,
+		Auth:            auth,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}, nil
+}
+
+func loadConfig() {
+	file, err := os.Open("config.json")
+	if err != nil {
+		log.Println("Config file not found, using defaults")
+		globalConfig = Config{
+			ServerPort:     "8080",
+			DefaultSSHHost: "127.0.0.1",
+			DefaultSSHPort: 22,
+		}
+		return
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&globalConfig)
+	if err != nil {
+		log.Fatal("Error decoding config:", err)
+	}
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+	})
+}
+
+type FileInfo struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	IsDir bool   `json:"is_dir"`
+	Mode  string `json:"mode"`
+	Time  string `json:"time"`
+}
+
+type wsWriter struct {
+	conn *websocket.Conn
+	mu   *sync.Mutex
+}
+func (w *wsWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	err := w.conn.WriteMessage(websocket.BinaryMessage, p)
+	return len(p), err
+}
+
+type WSControlMessage struct {
+	Type string `json:"type"`
+	Cols int    `json:"cols"`
+	Rows int    `json:"rows"`
+}
+
+func readWebSocketInput(conn *websocket.Conn, stdin io.Writer, session *ssh.Session) {
+	for {
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		if msgType == websocket.TextMessage {
+			var ctrl WSControlMessage
+			if err := json.Unmarshal(msg, &ctrl); err == nil && ctrl.Type == "resize" && ctrl.Cols > 0 && ctrl.Rows > 0 {
+				_ = session.WindowChange(ctrl.Rows, ctrl.Cols)
+				continue
+			}
+		}
+
+		if _, err := stdin.Write(msg); err != nil {
+			return
+		}
+	}
+}
+
 func createSession(creds SSHCredentials) (*Session, error) {
 	config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
 	if err != nil {
