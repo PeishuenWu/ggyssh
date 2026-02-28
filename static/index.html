@@ -235,11 +235,11 @@
         </div>
     </div>
 
-    <div id="bottom-control-bar">
-        <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-secondary text-decoration-none me-2" onclick="toggleExplorer()" title="Toggle File Explorer">
-            <i class="bi bi-folder2-open"></i> <span class="small ms-1">Explorer</span>
+    <div id="bottom-control-bar" class="d-flex justify-content-between align-items-center">
+        <span id="current-path-display" class="small text-muted text-truncate" style="max-width: 80%;" title="/">/</span>
+        <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-primary text-decoration-none flex-shrink-0" onclick="toggleExplorer()" title="Toggle File Explorer">
+            <span class="small me-1">Explorer</span> <i class="bi bi-folder2-open"></i>
         </button>
-        <span id="current-path-display" class="small text-muted text-truncate" style="max-width: 70%;" title="/">/</span>
     </div>
 
     <!-- Preview Modal -->
@@ -312,8 +312,8 @@
 
             // Update button visual
             btn.innerHTML = isHidden ? 
-                '<i class="bi bi-folder2"></i> <span class="small ms-1">Explorer</span>' : 
-                '<i class="bi bi-folder2-open"></i> <span class="small ms-1">Explorer</span>';
+                '<span class="small me-1">Explorer</span> <i class="bi bi-folder2"></i>' : 
+                '<span class="small me-1">Explorer</span> <i class="bi bi-folder2-open"></i>';
             btn.classList.toggle('text-primary', !isHidden);
             btn.classList.toggle('text-secondary', isHidden);
 
