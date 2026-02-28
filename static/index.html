@@ -17,7 +17,21 @@
         
         /* Main Layout */
         #main-container { flex: 1; display: flex; overflow: hidden; position: relative; background: #000; }
-        #terminal-container { flex: 3; padding: 0; overflow: hidden; min-width: 200px; }
+        #terminal-area { flex: 3; display: flex; flex-direction: column; overflow: hidden; min-width: 200px; }
+        #terminal-tabs-bar { 
+            background: #1e1e1e; border-bottom: 1px solid #333; 
+            display: flex; align-items: center; padding: 0 5px;
+        }
+        #terminal-tabs { border-bottom: none; }
+        #terminal-tabs .nav-link { 
+            color: #aaa; border: none; border-radius: 0; padding: 5px 15px; 
+            font-size: 0.75rem; transition: all 0.2s;
+        }
+        #terminal-tabs .nav-link.active { background: #000; color: #fff; border-bottom: 2px solid #0d6efd; }
+        #terminal-tabs .nav-link:hover:not(.active) { background: #2a2a2a; color: #eee; }
+        #terminal-container { flex: 1; position: relative; overflow: hidden; background: #000; }
+        .terminal-instance { position: absolute; top: 0; left: 0; right: 0; bottom: 0; visibility: hidden; padding: 10px; }
+        .terminal-instance.active { visibility: visible; }
         
         /* Resizer */
         #resizer {
@@ -178,7 +192,19 @@
     </div>
 
     <div id="main-container">
-        <div id="terminal-container"></div>
+        <div id="terminal-area">
+            <div id="terminal-tabs-bar">
+                <ul class="nav nav-tabs" id="terminal-tabs" role="tablist">
+                    <!-- Tabs will be injected here -->
+                </ul>
+                <button class="btn btn-link btn-sm text-secondary p-0 ms-2" onclick="addTab()" title="New Session">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+            </div>
+            <div id="terminal-container">
+                <!-- Terminal instances will be injected here -->
+            </div>
+        </div>
         <div id="resizer" class="hidden"></div>
         <div id="file-explorer" class="hidden">
             <div id="explorer-header">
@@ -270,71 +296,190 @@
             document.getElementById('key-input').classList.toggle('hidden', type === 'password');
         }
 
-        const term = new Terminal({ 
-            theme: { background: '#1a1a1a' }, 
-            cursorBlink: true,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            fontSize: 14
-        });
-        const fitAddon = new FitAddon.FitAddon();
-        term.loadAddon(fitAddon);
-        term.open(document.getElementById('terminal-container'));
-        fitAddon.fit();
-
-        let socket;
+        let tabs = {}; // { id: { term, socket, fitAddon, element } }
+        let activeTabId = null;
+        let tabCounter = 0;
         let sid = null;
         let remotePathTouched = false;
         let droppedFile = null;
         let isUploading = false;
         let lastTerminalWidth = null;
-        const dropZoneDefaultText = 'Drag file here';
         const textEncoder = new TextEncoder();
+
+        function addTab() {
+            if (!sid) return;
+            const id = 'tab-' + (++tabCounter);
+            
+            // UI: Tab link
+            const tabList = document.getElementById('terminal-tabs');
+            const tabItem = document.createElement('li');
+            tabItem.className = 'nav-item';
+            tabItem.id = `nav-item-${id}`;
+            tabItem.innerHTML = `
+                <div class="nav-link d-flex align-items-center" id="link-${id}" onclick="switchTab('${id}')">
+                    <span>Session ${tabCounter}</span>
+                    <i class="bi bi-x ms-2" onclick="event.stopPropagation(); closeTab('${id}')" style="cursor: pointer;"></i>
+                </div>
+            `;
+            tabList.appendChild(tabItem);
+
+            // UI: Terminal container
+            const container = document.getElementById('terminal-container');
+            const termElem = document.createElement('div');
+            termElem.id = `terminal-${id}`;
+            termElem.className = 'terminal-instance';
+            container.appendChild(termElem);
+
+            // Xterm init
+            const term = new Terminal({ 
+                theme: { background: '#000' }, 
+                cursorBlink: true,
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                fontSize: 14
+            });
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(termElem);
+            
+            termElem.addEventListener('click', () => term.focus());
+
+            // WebSocket init
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const socket = new WebSocket(`${protocol}//${window.location.host}/ws?sid=${sid}`);
+            socket.binaryType = 'arraybuffer';
+
+            socket.onmessage = (e) => {
+                term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+            };
+
+            socket.onclose = () => {
+                term.write('\r\nConnection closed\r\n');
+                document.getElementById(`link-${id}`).classList.add('text-danger');
+            };
+
+            term.onData(data => {
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(textEncoder.encode(data));
+                }
+            });
+
+            tabs[id] = { term, socket, fitAddon, element: termElem };
+            switchTab(id);
+            
+            socket.onopen = () => {
+                sendResize(id);
+            };
+        }
+
+        function switchTab(id) {
+            if (activeTabId === id) return;
+            
+            // Hide current
+            if (activeTabId && tabs[activeTabId]) {
+                tabs[activeTabId].element.classList.remove('active');
+                document.getElementById(`link-${activeTabId}`).classList.remove('active');
+            }
+
+            activeTabId = id;
+            
+            // Show new
+            if (tabs[id]) {
+                tabs[id].element.classList.add('active');
+                document.getElementById(`link-${id}`).classList.add('active');
+                
+                setTimeout(() => {
+                    tabs[id].fitAddon.fit();
+                    tabs[id].term.focus();
+                    sendResize(id);
+                }, 50);
+            }
+        }
+
+        function closeTab(id) {
+            if (!tabs[id]) return;
+            
+            tabs[id].socket.close();
+            tabs[id].term.dispose();
+            tabs[id].element.remove();
+            document.getElementById(`nav-item-${id}`).remove();
+            
+            delete tabs[id];
+
+            if (activeTabId === id) {
+                activeTabId = null;
+                const remainingIds = Object.keys(tabs);
+                if (remainingIds.length > 0) {
+                    switchTab(remainingIds[remainingIds.length - 1]);
+                } else {
+                    // No tabs left? Maybe add one or wait
+                }
+            }
+        }
+
+        function sendInput(data) {
+            if (activeTabId && tabs[activeTabId]) {
+                const { socket, term } = tabs[activeTabId];
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(textEncoder.encode(data));
+                    term.focus();
+                }
+            }
+        }
+
+        function sendResize(id = null) {
+            const targetId = id || activeTabId;
+            if (targetId && tabs[targetId]) {
+                const { socket, term } = tabs[targetId];
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'resize',
+                        cols: term.cols,
+                        rows: term.rows
+                    }));
+                }
+            }
+        }
 
         function toggleExplorer() {
             const explorer = document.getElementById('file-explorer');
             const resizer = document.getElementById('resizer');
             const btn = document.getElementById('explorer-toggle-btn');
-            const termContainer = document.getElementById('terminal-container');
+            const terminalArea = document.getElementById('terminal-area');
             const isHidden = explorer.classList.toggle('hidden');
             resizer.classList.toggle('hidden', isHidden);
             
             if (isHidden) {
-                // Save current width before hiding if it was manually set
-                if (termContainer.style.width && termContainer.style.width !== 'auto') {
-                    lastTerminalWidth = termContainer.style.width;
+                if (terminalArea.style.width && terminalArea.style.width !== 'auto') {
+                    lastTerminalWidth = terminalArea.style.width;
                 }
-                // When hiding, let terminal take full width
-                termContainer.style.flex = '1';
-                termContainer.style.width = 'auto';
+                terminalArea.style.flex = '1';
+                terminalArea.style.width = 'auto';
             } else {
-                // When showing, restore last manual width if it exists
                 if (lastTerminalWidth) {
-                    termContainer.style.flex = 'none';
-                    termContainer.style.width = lastTerminalWidth;
+                    terminalArea.style.flex = 'none';
+                    terminalArea.style.width = lastTerminalWidth;
                 }
             }
 
-            // Update button visual
             btn.innerHTML = isHidden ? 
                 '<span class="small me-1">Explorer</span> <i class="bi bi-folder2"></i>' : 
                 '<span class="small me-1">Explorer</span> <i class="bi bi-folder2-open"></i>';
             btn.classList.toggle('text-primary', !isHidden);
             btn.classList.toggle('text-secondary', isHidden);
 
-            // Refit terminal
             setTimeout(() => {
-                fitAddon.fit();
-                sendResize();
+                if (activeTabId && tabs[activeTabId]) {
+                    tabs[activeTabId].fitAddon.fit();
+                    sendResize();
+                }
             }, 50);
         }
 
         // Resizer logic
         const resizer = document.getElementById('resizer');
-        const terminalContainer = document.getElementById('terminal-container');
+        const terminalArea = document.getElementById('terminal-area');
         const fileExplorer = document.getElementById('file-explorer');
         let isResizing = false;
-
-        terminalContainer.addEventListener('click', () => term.focus());
 
         resizer.addEventListener('mousedown', (e) => {
             isResizing = true;
@@ -351,14 +496,15 @@
             const rightWidth = containerWidth - leftWidth - resizer.offsetWidth;
             
             if (leftWidth > 200 && rightWidth > 150) {
-                terminalContainer.style.flex = 'none';
-                terminalContainer.style.width = `${leftWidth}px`;
-                lastTerminalWidth = terminalContainer.style.width;
+                terminalArea.style.flex = 'none';
+                terminalArea.style.width = `${leftWidth}px`;
+                lastTerminalWidth = terminalArea.style.width;
                 fileExplorer.style.flex = '1';
-                fileExplorer.style.width = 'auto';
                 
-                fitAddon.fit();
-                sendResize();
+                if (activeTabId && tabs[activeTabId]) {
+                    tabs[activeTabId].fitAddon.fit();
+                    sendResize();
+                }
             }
         });
 
@@ -367,8 +513,10 @@
                 isResizing = false;
                 resizer.classList.remove('dragging');
                 document.body.style.cursor = 'default';
-                fitAddon.fit();
-                sendResize();
+                if (activeTabId && tabs[activeTabId]) {
+                    tabs[activeTabId].fitAddon.fit();
+                    sendResize();
+                }
             }
         });
 
@@ -749,48 +897,31 @@
                 localStorage.removeItem('ssh_creds');
             }
 
-            if (socket) socket.close();
+            // Cleanup old tabs if any
+            Object.keys(tabs).forEach(id => closeTab(id));
+            tabCounter = 0;
 
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            socket = new WebSocket(`${protocol}//${window.location.host}/ws?sid=${sid}`);
-            socket.binaryType = 'arraybuffer';
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('file-explorer').classList.remove('hidden');
+            document.getElementById('resizer').classList.remove('hidden');
+            document.getElementById('bottom-control-bar').style.display = 'flex';
+            
+            // Restore saved path or use default home
+            const saved = localStorage.getItem('ssh_creds');
+            let targetPath = `/home/${creds.user}`;
+            if (saved) {
+                const savedData = JSON.parse(saved);
+                if (savedData.path) targetPath = savedData.path;
+            }
 
-            socket.onopen = () => {
-                document.getElementById('login-form').classList.add('hidden');
-                document.getElementById('file-explorer').classList.remove('hidden');
-                document.getElementById('resizer').classList.remove('hidden');
-                document.getElementById('bottom-control-bar').style.display = 'flex';
-                
-                // Restore saved path or use default home
-                const saved = localStorage.getItem('ssh_creds');
-                let targetPath = `/home/${creds.user}`;
-                if (saved) {
-                    const savedData = JSON.parse(saved);
-                    if (savedData.path) targetPath = savedData.path;
-                }
+            currentExplorerPath = targetPath;
+            updatePathDisplay(currentExplorerPath);
+            
+            setViewMode('list');
+            refreshFiles();
 
-                currentExplorerPath = targetPath;
-                updatePathDisplay(currentExplorerPath);
-                
-                setViewMode('list');
-                refreshFiles();
-
-                term.focus();
-                fitAddon.fit();
-                sendResize();
-            };
-
-            socket.onmessage = (e) => {
-                term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
-            };
-
-            socket.onclose = () => {
-                term.write('\r\nConnection closed\r\n');
-                document.getElementById('login-form').classList.remove('hidden');
-                document.getElementById('file-explorer').classList.add('hidden');
-                document.getElementById('resizer').classList.add('hidden');
-                document.getElementById('bottom-control-bar').style.display = 'none';
-            };
+            // Add first tab
+            addTab();
         }
 
         function setUploadProgress(percent, status, show = true) {
@@ -869,18 +1000,20 @@
         }
 
         window.onresize = () => {
-            if (terminalContainer.style.width && terminalContainer.style.width.includes('px')) {
+            if (terminalArea.style.width && terminalArea.style.width.includes('px')) {
                 const container = document.getElementById('main-container');
                 if (container) {
                     const totalWidth = container.offsetWidth;
-                    const currentW = parseInt(terminalContainer.style.width);
+                    const currentW = parseInt(terminalArea.style.width);
                     if (currentW > totalWidth - 160) {
-                        terminalContainer.style.width = (totalWidth - 160) + 'px';
+                        terminalArea.style.width = (totalWidth - 160) + 'px';
                     }
                 }
             }
-            fitAddon.fit();
-            sendResize();
+            if (activeTabId && tabs[activeTabId]) {
+                tabs[activeTabId].fitAddon.fit();
+                sendResize();
+            }
         };
 
         function updateDefaultRemotePath() {
