@@ -183,8 +183,11 @@
         <div id="file-explorer" class="hidden">
             <div id="explorer-header">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                    <div class="flex-grow-1 me-2">
-                        <input type="text" id="file-filter" class="form-control form-control-sm py-0 px-2" 
+                    <div class="d-flex flex-grow-1 me-2 align-items-center">
+                        <button onclick="goHome()" class="btn btn-outline-secondary py-0 px-2 me-1" title="Go to Home" style="height: 24px; display: flex; align-items: center;">
+                            <i class="bi bi-house-fill" style="font-size: 0.75rem;"></i>
+                        </button>
+                        <input type="text" id="file-filter" class="form-control form-control-sm py-0 px-2 flex-grow-1" 
                                placeholder="Filter..." style="height: 24px; font-size: 0.75rem; background: #121212; border-color: #444;"
                                oninput="renderFileList(cachedFiles)">
                     </div>
@@ -481,6 +484,16 @@
                     localStorage.setItem('ssh_creds', JSON.stringify(creds));
                 }
             }
+        }
+
+        function goHome() {
+            const user = document.getElementById('user').value.trim();
+            if (!user) return;
+            currentExplorerPath = `/home/${user}`;
+            updatePathDisplay(currentExplorerPath);
+            refreshFiles();
+            // Sync terminal
+            sendInput(`cd "${currentExplorerPath}"\r`);
         }
 
         function updatePathDisplay(path) {
