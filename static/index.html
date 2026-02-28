@@ -84,6 +84,13 @@
         #explorer-list.list-view .file-item .actions { visibility: hidden; display: flex; gap: 5px; }
         #explorer-list.list-view .file-item:hover .actions { visibility: visible; }
         .item-checkbox { cursor: pointer; }
+        .thumbnail-img { 
+            width: 100%; height: 100%; object-fit: cover; border-radius: 2px;
+            background: #000;
+        }
+        #explorer-list.list-view .icon .thumbnail-img {
+            width: 20px; height: 20px;
+        }
 
         /* Grid View Items */
         #explorer-list.grid-view { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; align-content: flex-start; }
@@ -187,6 +194,9 @@
                         </button>
                         <button onclick="toggleHiddenFiles()" class="btn btn-outline-secondary py-0 px-2" id="btn-toggle-hidden" title="Toggle Hidden Files">
                             <i class="bi bi-eye-slash"></i>
+                        </button>
+                        <button onclick="toggleThumbnails()" class="btn btn-outline-secondary py-0 px-2" id="btn-toggle-thumbnails" title="Toggle Image Previews">
+                            <i class="bi bi-image"></i>
                         </button>
                         <button onclick="setViewMode('list')" class="btn btn-outline-secondary py-0 px-2" id="btn-list-view" title="List View">
                             <i class="bi bi-list"></i>
@@ -350,6 +360,7 @@
         let currentExplorerPath = '';
         let viewMode = 'list'; // 'list' or 'grid'
         let showHidden = false;
+        let showThumbnails = false;
         let cachedFiles = [];
         let selectedItems = new Set();
 
@@ -362,6 +373,17 @@
             
             selectedItems.clear();
             updateDeleteButton();
+            if (cachedFiles.length > 0) {
+                renderFileList(cachedFiles);
+            }
+        }
+
+        function toggleThumbnails() {
+            showThumbnails = !showThumbnails;
+            const btn = document.getElementById('btn-toggle-thumbnails');
+            btn.classList.toggle('btn-primary', showThumbnails);
+            btn.classList.toggle('btn-outline-secondary', !showThumbnails);
+            
             if (cachedFiles.length > 0) {
                 renderFileList(cachedFiles);
             }
@@ -529,6 +551,18 @@
                 const iconClass = file.is_dir ? 'bi bi-folder-fill text-warning' : 'bi bi-file-earmark-text text-secondary';
                 const size = file.is_dir ? '' : formatBytes(file.size);
                 
+                let iconHtml = `<i class="${iconClass}"></i>`;
+                const isImage = !file.is_dir && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(file.name.split('.').pop().toLowerCase());
+                
+                if (showThumbnails && isImage) {
+                    const creds = getCreds();
+                    const params = new URLSearchParams({
+                        path: fullPath, host: creds.host, port: creds.port, user: creds.user,
+                        auth_type: creds.auth_type, pass: creds.pass, key: creds.key
+                    });
+                    iconHtml = `<img src="/sftp/raw?${params.toString()}" class="thumbnail-img" loading="lazy">`;
+                }
+
                 const checkboxHtml = `<input type="checkbox" class="form-check-input item-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleItemSelection('${fullPath}')">`;
                 const actionsHtml = `
                     <div class="actions">
@@ -545,7 +579,7 @@
                 if (viewMode === 'list') {
                     item.innerHTML = `
                         ${checkboxHtml}
-                        <span class="icon"><i class="${iconClass}"></i></span>
+                        <span class="icon">${iconHtml}</span>
                         <span class="name" title="${file.name}">${file.name}</span>
                         <span class="size">${size}</span>
                         ${actionsHtml}
@@ -554,7 +588,7 @@
                     item.innerHTML = `
                         ${checkboxHtml}
                         ${actionsHtml}
-                        <span class="icon"><i class="${iconClass}"></i></span>
+                        <span class="icon">${iconHtml}</span>
                         <span class="name" title="${file.name}">${file.name}</span>
                     `;
                 }
