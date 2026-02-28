@@ -32,6 +32,10 @@
         #terminal-container { flex: 1; position: relative; overflow: hidden; background: #000; }
         .terminal-instance { position: absolute; top: 0; left: 0; right: 0; bottom: 0; visibility: hidden; padding: 10px; }
         .terminal-instance.active { visibility: visible; }
+        .preview-instance { position: absolute; top: 0; left: 0; right: 0; bottom: 0; visibility: hidden; background: #000; overflow: auto; display: flex; align-items: center; justify-content: center; }
+        .preview-instance.active { visibility: visible; }
+        .preview-instance img, .preview-instance video { max-width: 100%; max-height: 100%; }
+        .preview-instance iframe { width: 100%; height: 100%; border: none; }
         
         /* Resizer */
         #resizer {
@@ -271,23 +275,6 @@
         </button>
     </div>
 
-    <!-- Preview Modal -->
-    <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-centered">
-            <div class="modal-content bg-dark border-secondary">
-                <div class="modal-header border-secondary py-2">
-                    <h6 class="modal-title text-info" id="previewTitle">File Preview</h6>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-0 d-flex justify-content-center align-items-center" style="min-height: 300px; background: #000;">
-                    <div id="previewContent" class="w-100 h-100 d-flex justify-content-center">
-                        <!-- Content will be injected here -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         function toggleAuth() {
@@ -306,9 +293,11 @@
         let lastTerminalWidth = null;
         const textEncoder = new TextEncoder();
 
-        function addTab() {
+        function addTab(type = 'terminal', previewData = null) {
             if (!sid) return;
             const id = 'tab-' + (++tabCounter);
+            const title = type === 'terminal' ? `Session ${tabCounter}` : `Preview: ${previewData.name}`;
+            const icon = type === 'terminal' ? 'bi bi-terminal' : 'bi bi-eye';
             
             // UI: Tab link
             const tabList = document.getElementById('terminal-tabs');
@@ -316,59 +305,84 @@
             tabItem.className = 'nav-item';
             tabItem.id = `nav-item-${id}`;
             tabItem.innerHTML = `
-                <div class="nav-link d-flex align-items-center" id="link-${id}" onclick="switchTab('${id}')">
-                    <span>Session ${tabCounter}</span>
+                <div class="nav-link d-flex align-items-center" id="link-${id}" onclick="switchTab('${id}')" title="${title}">
+                    <i class="${icon} me-2 small"></i>
+                    <span class="text-truncate" style="max-width: 120px;">${title}</span>
                     <i class="bi bi-x ms-2" onclick="event.stopPropagation(); closeTab('${id}')" style="cursor: pointer;"></i>
                 </div>
             `;
             tabList.appendChild(tabItem);
 
-            // UI: Terminal container
+            // UI: Container
             const container = document.getElementById('terminal-container');
-            const termElem = document.createElement('div');
-            termElem.id = `terminal-${id}`;
-            termElem.className = 'terminal-instance';
-            container.appendChild(termElem);
+            const instanceElem = document.createElement('div');
+            instanceElem.id = `instance-${id}`;
+            instanceElem.className = type === 'terminal' ? 'terminal-instance' : 'preview-instance';
+            container.appendChild(instanceElem);
 
-            // Xterm init
-            const term = new Terminal({ 
-                theme: { background: '#000' }, 
-                cursorBlink: true,
-                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-                fontSize: 14
-            });
-            const fitAddon = new FitAddon.FitAddon();
-            term.loadAddon(fitAddon);
-            term.open(termElem);
-            
-            termElem.addEventListener('click', () => term.focus());
+            let tabObj = { id, type, element: instanceElem };
 
-            // WebSocket init
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const socket = new WebSocket(`${protocol}//${window.location.host}/ws?sid=${sid}`);
-            socket.binaryType = 'arraybuffer';
+            if (type === 'terminal') {
+                const term = new Terminal({ 
+                    theme: { background: '#000' }, 
+                    cursorBlink: true,
+                    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                    fontSize: 14
+                });
+                const fitAddon = new FitAddon.FitAddon();
+                term.loadAddon(fitAddon);
+                term.open(instanceElem);
+                instanceElem.addEventListener('click', () => term.focus());
 
-            socket.onmessage = (e) => {
-                term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
-            };
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const socket = new WebSocket(`${protocol}//${window.location.host}/ws?sid=${sid}`);
+                socket.binaryType = 'arraybuffer';
 
-            socket.onclose = () => {
-                term.write('\r\nConnection closed\r\n');
-                document.getElementById(`link-${id}`).classList.add('text-danger');
-            };
+                socket.onmessage = (e) => {
+                    term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+                };
+                socket.onclose = () => {
+                    term.write('\r\nConnection closed\r\n');
+                    document.getElementById(`link-${id}`).classList.add('text-danger');
+                };
+                socket.onopen = () => sendResize(id);
 
-            term.onData(data => {
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(textEncoder.encode(data));
-                }
-            });
+                term.onData(data => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(textEncoder.encode(data));
+                    }
+                });
 
-            tabs[id] = { term, socket, fitAddon, element: termElem };
+                tabObj = { ...tabObj, term, socket, fitAddon };
+            } else {
+                renderPreview(instanceElem, previewData);
+            }
+
+            tabs[id] = tabObj;
             switchTab(id);
-            
-            socket.onopen = () => {
-                sendResize(id);
-            };
+        }
+
+        function renderPreview(container, data) {
+            const { path, name } = data;
+            const params = new URLSearchParams({ sid: sid, path: path });
+            const url = `/sftp/raw?${params.toString()}`;
+            const ext = name.split('.').pop().toLowerCase();
+
+            if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
+                container.innerHTML = `<img src="${url}" loading="lazy">`;
+            } else if (['mp4', 'webm', 'ogg'].includes(ext)) {
+                container.innerHTML = `<video src="${url}" controls autoplay></video>`;
+            } else if (['mp3', 'wav', 'ogg'].includes(ext)) {
+                container.innerHTML = `<audio src="${url}" controls autoplay class="w-75"></audio>`;
+            } else if (ext === 'pdf') {
+                container.innerHTML = `<iframe src="${url}"></iframe>`;
+            } else {
+                container.innerHTML = `<div class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i> Preview not supported.</div>`;
+            }
+        }
+
+        function previewFile(path, name) {
+            addTab('preview', { path, name });
         }
 
         function switchTab(id) {
@@ -387,19 +401,27 @@
                 tabs[id].element.classList.add('active');
                 document.getElementById(`link-${id}`).classList.add('active');
                 
-                setTimeout(() => {
-                    tabs[id].fitAddon.fit();
-                    tabs[id].term.focus();
-                    sendResize(id);
-                }, 50);
+                if (tabs[id].type === 'terminal') {
+                    setTimeout(() => {
+                        tabs[id].fitAddon.fit();
+                        tabs[id].term.focus();
+                        sendResize(id);
+                    }, 50);
+                }
             }
         }
 
         function closeTab(id) {
             if (!tabs[id]) return;
             
-            tabs[id].socket.close();
-            tabs[id].term.dispose();
+            if (tabs[id].type === 'terminal') {
+                tabs[id].socket.close();
+                tabs[id].term.dispose();
+            } else {
+                tabs[id].element.querySelectorAll('video, audio').forEach(m => { m.pause(); m.src = ""; });
+                tabs[id].element.innerHTML = '';
+            }
+            
             tabs[id].element.remove();
             document.getElementById(`nav-item-${id}`).remove();
             
@@ -410,8 +432,6 @@
                 const remainingIds = Object.keys(tabs);
                 if (remainingIds.length > 0) {
                     switchTab(remainingIds[remainingIds.length - 1]);
-                } else {
-                    // No tabs left? Maybe add one or wait
                 }
             }
         }
