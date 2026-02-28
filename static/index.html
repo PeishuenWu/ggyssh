@@ -282,6 +282,7 @@
         fitAddon.fit();
 
         let socket;
+        let sid = null;
         let remotePathTouched = false;
         let droppedFile = null;
         let isUploading = false;
@@ -427,7 +428,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            ...getCreds(),
+                            sid: sid,
                             action: 'delete',
                             path: fullPath
                         })
@@ -526,7 +527,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        ...getCreds(),
+                        sid: sid,
                         path: currentExplorerPath || '.'
                     })
                 });
@@ -593,10 +594,9 @@
                 const isImage = !file.is_dir && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(file.name.split('.').pop().toLowerCase());
                 
                 if (showThumbnails && isImage) {
-                    const creds = getCreds();
                     const params = new URLSearchParams({
-                        path: fullPath, host: creds.host, port: creds.port, user: creds.user,
-                        auth_type: creds.auth_type, pass: creds.pass, key: creds.key
+                        sid: sid,
+                        path: fullPath
                     });
                     iconHtml = `<img src="/sftp/raw?${params.toString()}" class="thumbnail-img" loading="lazy">`;
                 }
@@ -657,19 +657,13 @@
             const modal = new bootstrap.Modal(document.getElementById('previewModal'));
             const content = document.getElementById('previewContent');
             const title = document.getElementById('previewTitle');
-            const creds = getCreds();
             
             title.innerText = `Preview: ${name}`;
             content.innerHTML = '<div class="text-secondary p-5"><div class="spinner-border spinner-border-sm me-2"></div>Loading preview...</div>';
             
             const params = new URLSearchParams({
-                path: path,
-                host: creds.host,
-                port: creds.port,
-                user: creds.user,
-                auth_type: creds.auth_type,
-                pass: creds.pass,
-                key: creds.key
+                sid: sid,
+                path: path
             });
             const url = `/sftp/raw?${params.toString()}`;
             
@@ -723,14 +717,24 @@
             sendInput(data);
         });
 
-        function connect() {
-            const host = document.getElementById('host').value;
-            const port = parseInt(document.getElementById('port').value);
-            const user = document.getElementById('user').value;
-            const auth_type = document.getElementById('auth_type').value;
-            const pass = document.getElementById('pass').value;
-            const key = document.getElementById('key').value;
+        async function connect() {
+            const creds = getCreds();
             const remember = document.getElementById('remember_me').checked;
+
+            // Step 1: Login to get SID
+            try {
+                const resp = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(creds)
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                sid = data.sid;
+            } catch (e) {
+                alert("Login failed: " + e.message);
+                return;
+            }
 
             if (remember) {
                 const oldSaved = localStorage.getItem('ssh_creds');
@@ -739,8 +743,8 @@
                     const oldCreds = JSON.parse(oldSaved);
                     path = oldCreds.path || '';
                 }
-                const creds = { host, port, user, auth_type, pass, key, remember, path };
-                localStorage.setItem('ssh_creds', JSON.stringify(creds));
+                const saveCreds = { ...creds, remember, path };
+                localStorage.setItem('ssh_creds', JSON.stringify(saveCreds));
             } else {
                 localStorage.removeItem('ssh_creds');
             }
@@ -748,11 +752,10 @@
             if (socket) socket.close();
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            socket = new WebSocket(`${protocol}//${window.location.host}/ws?sid=${sid}`);
             socket.binaryType = 'arraybuffer';
 
             socket.onopen = () => {
-                socket.send(JSON.stringify({ host, port, user, auth_type, pass, key }));
                 document.getElementById('login-form').classList.add('hidden');
                 document.getElementById('file-explorer').classList.remove('hidden');
                 document.getElementById('resizer').classList.remove('hidden');
@@ -760,10 +763,10 @@
                 
                 // Restore saved path or use default home
                 const saved = localStorage.getItem('ssh_creds');
-                let targetPath = `/home/${user}`;
+                let targetPath = `/home/${creds.user}`;
                 if (saved) {
-                    const creds = JSON.parse(saved);
-                    if (creds.path) targetPath = creds.path;
+                    const savedData = JSON.parse(saved);
+                    if (savedData.path) targetPath = savedData.path;
                 }
 
                 currentExplorerPath = targetPath;
@@ -824,12 +827,7 @@
             const formData = new FormData();
             formData.append('file', file);
             formData.append('path', finalPath);
-            formData.append('host', document.getElementById('host').value);
-            formData.append('port', document.getElementById('port').value);
-            formData.append('user', document.getElementById('user').value);
-            formData.append('auth_type', document.getElementById('auth_type').value);
-            formData.append('pass', document.getElementById('pass').value);
-            formData.append('key', document.getElementById('key').value);
+            formData.append('sid', sid);
 
             isUploading = true;
             setUploadProgress(0, 'Starting...');
