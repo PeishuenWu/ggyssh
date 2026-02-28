@@ -822,38 +822,7 @@
         }
 
         function previewFile(path, name) {
-            const modal = new bootstrap.Modal(document.getElementById('previewModal'));
-            const content = document.getElementById('previewContent');
-            const title = document.getElementById('previewTitle');
-            
-            title.innerText = `Preview: ${name}`;
-            content.innerHTML = '<div class="text-secondary p-5"><div class="spinner-border spinner-border-sm me-2"></div>Loading preview...</div>';
-            
-            const params = new URLSearchParams({
-                sid: sid,
-                path: path
-            });
-            const url = `/sftp/raw?${params.toString()}`;
-            
-            const ext = name.split('.').pop().toLowerCase();
-            modal.show();
-
-            if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
-                content.innerHTML = `<img src="${url}" class="img-fluid" style="max-height: 80vh;">`;
-            } else if (['mp4', 'webm', 'ogg'].includes(ext)) {
-                content.innerHTML = `<video src="${url}" controls autoplay class="w-100" style="max-height: 80vh;"></video>`;
-            } else if (['mp3', 'wav', 'ogg'].includes(ext)) {
-                content.innerHTML = `<audio src="${url}" controls autoplay class="w-100 p-5"></audio>`;
-            } else if (ext === 'pdf') {
-                content.innerHTML = `<iframe src="${url}" class="w-100" style="height: 80vh;" frameborder="0"></iframe>`;
-            } else {
-                content.innerHTML = `<div class="text-warning p-5"><i class="bi bi-exclamation-triangle me-2"></i> Preview not supported for this file type.</div>`;
-            }
-
-            // Cleanup on modal hide
-            document.getElementById('previewModal').addEventListener('hidden.bs.modal', () => {
-                content.innerHTML = '';
-            }, { once: true });
+            addTab('preview', { path, name });
         }
 
         function formatBytes(bytes) {
@@ -863,27 +832,6 @@
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
-
-        function sendInput(data) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(textEncoder.encode(data));
-                term.focus();
-            }
-        }
-
-        function sendResize() {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'resize',
-                    cols: term.cols,
-                    rows: term.rows
-                }));
-            }
-        }
-
-        term.onData(data => {
-            sendInput(data);
-        });
 
         async function connect() {
             const creds = getCreds();
