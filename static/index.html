@@ -183,7 +183,11 @@
         <div id="file-explorer" class="hidden">
             <div id="explorer-header">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span id="current-path" class="fw-bold small overflow-hidden text-nowrap me-2" style="text-overflow: ellipsis;" title="/">/</span>
+                    <div class="flex-grow-1 me-2">
+                        <input type="text" id="file-filter" class="form-control form-control-sm py-0 px-2" 
+                               placeholder="Filter..." style="height: 24px; font-size: 0.75rem; background: #121212; border-color: #444;"
+                               oninput="renderFileList(cachedFiles)">
+                    </div>
                     <div class="btn-group btn-group-sm flex-shrink-0">
                         <input type="file" id="fileInput" class="hidden" />
                         <button onclick="document.getElementById('fileInput').click()" class="btn btn-outline-success py-0 px-2" title="Upload File">
@@ -226,9 +230,10 @@
     </div>
 
     <div id="bottom-control-bar">
-        <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-secondary text-decoration-none" onclick="toggleExplorer()" title="Toggle File Explorer">
+        <button id="explorer-toggle-btn" class="btn btn-link btn-sm p-0 text-secondary text-decoration-none me-2" onclick="toggleExplorer()" title="Toggle File Explorer">
             <i class="bi bi-folder2-open"></i> <span class="small ms-1">Explorer</span>
         </button>
+        <span id="current-path-display" class="small text-muted text-truncate" style="max-width: 70%;" title="/">/</span>
     </div>
 
     <!-- Preview Modal -->
@@ -478,6 +483,13 @@
             }
         }
 
+        function updatePathDisplay(path) {
+            const display = document.getElementById('current-path-display');
+            display.innerText = path;
+            display.title = path;
+            document.getElementById('remotePath').value = path + (path.endsWith('/') ? '' : '/');
+        }
+
         async function refreshFiles() {
             const listContainer = document.getElementById('explorer-list');
             listContainer.innerHTML = '<div style="padding: 10px; color: #888;">Loading...</div>';
@@ -499,6 +511,8 @@
                 if (!resp.ok) throw new Error(await resp.text());
                 
                 cachedFiles = await resp.json();
+                // Clear filter when refreshing
+                document.getElementById('file-filter').value = '';
                 renderFileList(cachedFiles);
             } catch (e) {
                 listContainer.innerHTML = `<div style="padding: 10px; color: #f44;">Error: ${e.message}</div>`;
@@ -507,6 +521,7 @@
 
         function renderFileList(files) {
             const listContainer = document.getElementById('explorer-list');
+            const filter = document.getElementById('file-filter').value.toLowerCase();
             listContainer.innerHTML = '';
 
             if (!files) files = [];
@@ -522,10 +537,7 @@
                     parts.pop();
                     currentExplorerPath = '/' + parts.join('/');
                     if (currentExplorerPath === '/') currentExplorerPath = '';
-                    const displayPath = currentExplorerPath || '/';
-                    const cpElem = document.getElementById('current-path');
-                    cpElem.innerText = displayPath;
-                    cpElem.title = displayPath;
+                    updatePathDisplay(currentExplorerPath || '/');
                     refreshFiles();
                 };
                 listContainer.appendChild(backItem);
@@ -539,6 +551,9 @@
 
             files.forEach(file => {
                 if (!showHidden && file.name.startsWith('.')) {
+                    return;
+                }
+                if (filter && !file.name.toLowerCase().includes(filter)) {
                     return;
                 }
                 const fullPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
@@ -596,10 +611,7 @@
                 item.onclick = () => {
                     if (file.is_dir) {
                         currentExplorerPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
-                        const cpElem = document.getElementById('current-path');
-                        cpElem.innerText = currentExplorerPath;
-                        cpElem.title = currentExplorerPath;
-                        document.getElementById('remotePath').value = currentExplorerPath + '/';
+                        updatePathDisplay(currentExplorerPath);
                         refreshFiles();
                     }
                 };
@@ -732,10 +744,7 @@
                 }
 
                 currentExplorerPath = targetPath;
-                const cpElem = document.getElementById('current-path');
-                cpElem.innerText = currentExplorerPath;
-                cpElem.title = currentExplorerPath;
-                document.getElementById('remotePath').value = currentExplorerPath + (currentExplorerPath.endsWith('/') ? '' : '/');
+                updatePathDisplay(currentExplorerPath);
                 
                 setViewMode('list');
                 refreshFiles();
