@@ -101,7 +101,7 @@ func loadConfig() {
 
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		log.Printf("Request: %s %s from %s", r.Method, r.URL.String(), r.RemoteAddr)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -186,8 +186,8 @@ func createSession(creds SSHCredentials) (*Session, error) {
 }
 
 func getSession(id string) *Session {
-	sessionMutex.RLock()
-	defer sessionMutex.RUnlock()
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
 	if s, ok := sessionStore[id]; ok {
 		s.LastAccess = time.Now()
 		return s
@@ -248,6 +248,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("Login successful for user %s, Session ID: %s", creds.Username, session.ID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"sid": session.ID})
 }
@@ -356,19 +357,22 @@ func handleSFTPRaw(w http.ResponseWriter, r *http.Request) {
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	sid := r.URL.Query().Get("sid")
+	log.Printf("WS Connection Attempt: sid=%s from %s", sid, r.RemoteAddr)
+	
 	session := getSession(sid)
 	if session == nil {
-		log.Printf("WS: Invalid or expired session ID: %s", sid)
+		log.Printf("WS Error: Invalid or expired session ID: %s", sid)
 		http.Error(w, "Invalid session", 401)
 		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Upgrade error:", err)
+		log.Printf("WS Upgrade Error from %s: %v", r.RemoteAddr, err)
 		return
 	}
 	defer conn.Close()
+	log.Printf("WS Upgraded successfully: sid=%s", sid)
 
 	sshSession, err := session.SSHClient.NewSession()
 	if err != nil {
