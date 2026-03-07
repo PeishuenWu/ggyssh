@@ -243,7 +243,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	session, err := createSession(creds)
 	if err != nil {
-		http.Error(w, "Login failed: "+err.Error(), 401)
+		log.Printf("Login failed for user %s to %s:%d: %v", creds.Username, creds.Host, creds.Port, err)
+		http.Error(w, "SSH Error: "+err.Error(), 401)
 		return
 	}
 
@@ -357,8 +358,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	sid := r.URL.Query().Get("sid")
 	session := getSession(sid)
 	if session == nil {
-		// Try legacy mode if no SID (for initial compatibility or separate login)
-		log.Println("WS: No session ID provided")
+		log.Printf("WS: Invalid or expired session ID: %s", sid)
+		http.Error(w, "Invalid session", 401)
+		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -368,36 +370,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	var sshClient *ssh.Client
-	if session != nil {
-		sshClient = session.SSHClient
-	} else {
-		// Legacy: Expect credentials in first message
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			return
-		}
-		var creds SSHCredentials
-		if err := json.Unmarshal(msg, &creds); err != nil {
-			conn.WriteMessage(websocket.TextMessage, []byte("\r\nInvalid credentials\r\n"))
-			return
-		}
-		config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
-		if err != nil {
-			conn.WriteMessage(websocket.TextMessage, []byte("\r\nAuth error: "+err.Error()+"\r\n"))
-			return
-		}
-		client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", creds.Host, creds.Port), config)
-		if err != nil {
-			conn.WriteMessage(websocket.TextMessage, []byte("\r\nDial error: "+err.Error()+"\r\n"))
-			return
-		}
-		sshClient = client
-		defer client.Close()
-	}
-
-	sshSession, err := sshClient.NewSession()
+	sshSession, err := session.SSHClient.NewSession()
 	if err != nil {
+		log.Printf("SSH session creation failed: %v", err)
 		return
 	}
 	defer sshSession.Close()

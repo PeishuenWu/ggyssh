@@ -373,8 +373,12 @@
                 instanceElem.addEventListener('click', () => term.focus());
 
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const pathPrefix = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
-                const wsUrl = `${protocol}//${window.location.host}${pathPrefix}ws?sid=${sid}`;
+                // Detect base path for proxy support
+                let basePath = window.location.pathname;
+                if (!basePath.endsWith('/')) {
+                    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+                }
+                const wsUrl = `${protocol}//${window.location.host}${basePath}ws?sid=${sid}`;
                 const socket = new WebSocket(wsUrl);
                 socket.binaryType = 'arraybuffer';
 
