@@ -373,7 +373,9 @@
                 instanceElem.addEventListener('click', () => term.focus());
 
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const socket = new WebSocket(`${protocol}//${window.location.host}/ws?sid=${sid}`);
+                const pathPrefix = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+                const wsUrl = `${protocol}//${window.location.host}${pathPrefix}ws?sid=${sid}`;
+                const socket = new WebSocket(wsUrl);
                 socket.binaryType = 'arraybuffer';
 
                 socket.onmessage = (e) => {
@@ -402,7 +404,7 @@
         function renderPreview(container, data) {
             const { path, name } = data;
             const params = new URLSearchParams({ sid: sid, path: path });
-            const url = `/sftp/raw?${params.toString()}`;
+            const url = `sftp/raw?${params.toString()}`;
             const ext = name.split('.').pop().toLowerCase();
 
             if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
@@ -623,7 +625,7 @@
 
             for (const fullPath of itemsToDelete) {
                 try {
-                    const resp = await fetch('/sftp/action', {
+                    const resp = await fetch('sftp/action', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -724,7 +726,7 @@
             saveCurrentPath();
 
             try {
-                const resp = await fetch('/sftp/list', {
+                const resp = await fetch('sftp/list', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -799,7 +801,7 @@
                         sid: sid,
                         path: fullPath
                     });
-                    iconHtml = `<img src="/sftp/raw?${params.toString()}" class="thumbnail-img" loading="lazy">`;
+                    iconHtml = `<img src="sftp/raw?${params.toString()}" class="thumbnail-img" loading="lazy">`;
                 }
 
                 const checkboxHtml = `<input type="checkbox" class="form-check-input item-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleItemSelection('${fullPath}')">`;
@@ -874,7 +876,7 @@
 
             // Step 1: Login to get SID
             try {
-                const resp = await fetch('/login', {
+                const resp = await fetch('login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(creds)
@@ -968,7 +970,7 @@
             try {
                 const result = await new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/upload');
+                    xhr.open('POST', 'upload');
                     xhr.upload.onprogress = (e) => {
                         if (!e.lengthComputable) return;
                         const percent = Math.round((e.loaded / e.total) * 100);
@@ -1069,7 +1071,7 @@
             }
         });
 
-        fetch('/config').then(r => r.json()).then(data => {
+        fetch('config').then(r => r.json()).then(data => {
             const hostSelect = document.getElementById('host-select');
             if (data.hosts && data.hosts.length > 0) {
                 hostSelect.innerHTML = data.hosts.map(h => 
