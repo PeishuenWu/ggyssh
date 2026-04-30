@@ -1,5 +1,7 @@
 {
   "server_port": "8080",
+  "base_path": "",
+  "disable_password_login": false,
   "hosts": [
     {
       "host": "127.0.0.1",

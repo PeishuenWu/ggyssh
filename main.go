@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,8 +24,10 @@ type HostConfig struct {
 }
 
 type Config struct {
-	ServerPort string       `json:"server_port"`
-	Hosts      []HostConfig `json:"hosts"`
+	ServerPort           string       `json:"server_port"`
+	Hosts                []HostConfig `json:"hosts"`
+	BasePath             string       `json:"base_path,omitempty"`
+	DisablePasswordLogin bool         `json:"disable_password_login,omitempty"`
 }
 
 var globalConfig Config
@@ -69,6 +72,9 @@ func getSSHConfig(user, authType, pass, key string) (*ssh.ClientConfig, error) {
 		
 		auth = append(auth, ssh.PublicKeys(signer))
 	} else {
+		if globalConfig.DisablePasswordLogin {
+			return nil, fmt.Errorf("password login is disabled by administrator")
+		}
 		auth = append(auth, ssh.Password(pass))
 	}
 
@@ -103,6 +109,110 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Request: %s %s from %s", r.Method, r.URL.String(), r.RemoteAddr)
 		next.ServeHTTP(w, r)
+	})
+}
+
+func normalizePathPrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(prefix, "/") {
+		prefix = "/" + prefix
+	}
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "/" {
+		return ""
+	}
+	return prefix
+}
+
+func stripPrefix(p, prefix string) (string, bool) {
+	if prefix == "" {
+		return p, false
+	}
+	if p == prefix {
+		return "/", true
+	}
+	if strings.HasPrefix(p, prefix+"/") {
+		return strings.TrimPrefix(p, prefix), true
+	}
+	return p, false
+}
+
+func rewriteBySuffix(p string) string {
+	if p == "" {
+		return "/"
+	}
+
+	known := []string{
+		"/sftp/raw",
+		"/sftp/action",
+		"/sftp/list",
+		"/upload",
+		"/ws",
+		"/login",
+		"/config",
+	}
+
+	for _, k := range known {
+		if strings.HasSuffix(p, k) || strings.HasSuffix(p, k+"/") {
+			return k
+		}
+	}
+
+	if strings.HasSuffix(p, "/index.html") {
+		return "/index.html"
+	}
+	if strings.HasSuffix(p, "/") {
+		return "/"
+	}
+
+	// If a reverse proxy forwards a path prefix (e.g. /xxx/yyy), treat it as the UI base.
+	// This keeps the app working even when the proxy doesn't strip the prefix.
+	if !strings.Contains(path.Base(p), ".") {
+		return "/"
+	}
+
+	return p
+}
+
+func pathRewriteMiddleware(next http.Handler) http.Handler {
+	basePrefix := normalizePathPrefix(globalConfig.BasePath)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origPath := r.URL.Path
+		newPath := origPath
+
+		if p, ok := stripPrefix(newPath, basePrefix); ok {
+			newPath = p
+		}
+
+		if fwd := r.Header.Get("X-Forwarded-Prefix"); newPath == origPath && fwd != "" {
+			// Some proxies set X-Forwarded-Prefix to indicate the mount path.
+			// Use the first value if multiple are provided.
+			if i := strings.IndexByte(fwd, ','); i >= 0 {
+				fwd = fwd[:i]
+			}
+			if p, ok := stripPrefix(newPath, normalizePathPrefix(fwd)); ok {
+				newPath = p
+			}
+		}
+
+		if newPath == origPath {
+			newPath = rewriteBySuffix(origPath)
+		}
+
+		if newPath == origPath {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		r2 := r.Clone(r.Context())
+		u := *r.URL
+		u.Path = newPath
+		r2.URL = &u
+		next.ServeHTTP(w, r2)
 	})
 }
 
@@ -269,7 +379,7 @@ func main() {
 	})
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
 
-	handler := loggingMiddleware(mux)
+	handler := loggingMiddleware(pathRewriteMiddleware(mux))
 	fmt.Printf("GgySSH server starting on :%s...\n", globalConfig.ServerPort)
 	if err := http.ListenAndServe(":"+globalConfig.ServerPort, handler); err != nil {
 		log.Fatal(err)
