@@ -9,7 +9,13 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.3/dist/docx-preview.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
+        :root { --bottom-bar-h: 0px; }
         body { background: #121212; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         
         /* Centered Login Screen */
@@ -25,7 +31,7 @@
         #login-card .mb-3 { margin-bottom: 1rem !important; }
         
         /* Main Layout (hidden until login) */
-        #main-container { flex: 1; display: flex; overflow: hidden; position: relative; background: #000; }
+        #main-container { height: calc(100vh - var(--bottom-bar-h)); min-height: 0; flex: none; display: flex; overflow: hidden; position: relative; background: #000; }
         #terminal-area { flex: 3; display: flex; flex-direction: column; overflow: hidden; min-width: 200px; }
 
         /* Mobile Adjustments */
@@ -56,12 +62,50 @@
         #terminal-tabs .nav-link.active { background: #000; color: #fff; border-bottom: 2px solid #0d6efd; }
         #terminal-tabs .nav-link:hover:not(.active) { background: #2a2a2a; color: #eee; }
         #terminal-container { flex: 1; position: relative; overflow: hidden; background: #000; }
-        .terminal-instance { position: absolute; top: 0; left: 0; right: 0; bottom: 0; visibility: hidden; padding: 10px; }
+        .terminal-instance { position: absolute; top: 0; left: 0; right: 0; bottom: 0; visibility: hidden; padding: 10px 10px 18px 10px; box-sizing: border-box; }
         .terminal-instance.active { visibility: visible; }
         .preview-instance { position: absolute; top: 0; left: 0; right: 0; bottom: 0; visibility: hidden; background: #000; overflow: auto; display: flex; align-items: center; justify-content: center; }
         .preview-instance.active { visibility: visible; }
+        .preview-instance.editor-mode { display: block; padding: 0.75rem; }
         .preview-instance img, .preview-instance video { max-width: 100%; max-height: 100%; }
         .preview-instance iframe { width: 100%; height: 100%; border: none; }
+        .pdf-preview-wrap { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; }
+        .pdf-preview-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+        .pdf-preview-status { color: #9aa4b2; font-size: 0.8rem; min-height: 1.1rem; }
+        .pdf-preview-frame { flex: 1; width: 100%; border: 1px solid #2f3541; border-radius: 6px; background: #0f1115; }
+        .office-preview-wrap { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; }
+        .office-preview-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+        .office-preview-status { color: #9aa4b2; font-size: 0.8rem; min-height: 1.1rem; }
+        .office-preview-body { flex: 1; min-height: 0; overflow: auto; border: 1px solid #2f3541; border-radius: 6px; background: #0f1115; padding: 0.75rem; }
+        .xlsx-sheet-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+        .xlsx-sheet-tabs .btn.active { border-color: #0d6efd; color: #8ab4f8; }
+        .xlsx-table-wrap { overflow: auto; max-height: calc(100% - 2.5rem); border: 1px solid #2f3541; border-radius: 6px; }
+        .xlsx-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .xlsx-table th, .xlsx-table td { border: 1px solid #2f3541; padding: 0.25rem 0.45rem; white-space: nowrap; }
+        .xlsx-table th { background: #11141a; color: #8ab4f8; position: sticky; top: 0; z-index: 1; }
+        .md-viewer { flex: 1; min-height: 0; overflow: auto; border: 1px solid #2f3541; border-radius: 6px; background: #0f1115; padding: 1rem; color: #e6edf3; line-height: 1.55; }
+        .md-viewer h1, .md-viewer h2, .md-viewer h3, .md-viewer h4, .md-viewer h5, .md-viewer h6 { margin-top: 1.1em; margin-bottom: 0.5em; line-height: 1.3; }
+        .md-viewer h1, .md-viewer h2 { border-bottom: 1px solid #2f3541; padding-bottom: 0.25em; }
+        .md-viewer p { margin: 0.6em 0; }
+        .md-viewer ul, .md-viewer ol { padding-left: 1.4em; }
+        .md-viewer pre { background: #0b0d11; border: 1px solid #2f3541; border-radius: 6px; padding: 0.65rem; overflow: auto; }
+        .md-viewer code { font-family: Menlo, Monaco, "Courier New", monospace; font-size: 0.83rem; }
+        .md-viewer blockquote { margin: 0.75em 0; border-left: 3px solid #4d5562; padding: 0.4em 0.8em; color: #b8c0cc; }
+        .md-viewer table { width: 100%; border-collapse: collapse; margin: 0.8em 0; }
+        .md-viewer th, .md-viewer td { border: 1px solid #2f3541; padding: 0.35rem 0.5rem; text-align: left; }
+        .md-viewer .mermaid { background: #0b0d11; border: 1px solid #2f3541; border-radius: 6px; padding: 0.5rem; overflow-x: auto; }
+        .md-viewer .mermaid-error { border: 1px solid #6b2c31; background: #2c1317; color: #ffb4b4; border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; white-space: pre-wrap; }
+        .text-editor-wrap { height: 100%; display: flex; flex-direction: column; gap: 0.5rem; }
+        .text-editor-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+        .text-editor-name { color: #8ab4f8; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .text-editor-dir { color: #7d8590; font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+        .text-editor-filename { max-width: 280px; }
+        .text-editor-status { font-size: 0.75rem; color: #aaa; min-height: 1.1rem; }
+        .text-editor-body { flex: 1; min-height: 0; display: flex; }
+        .text-editor-lines-wrap { width: 54px; background: #0b0d11; border: 1px solid #2f3541; border-right: none; border-radius: 6px 0 0 6px; overflow: hidden; }
+        .text-editor-lines { margin: 0; padding: 0.75rem 0.5rem; color: #6e7681; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 1.3rem; line-height: 1.45; text-align: right; user-select: none; pointer-events: none; }
+        .text-editor-area { flex: 1; width: 100%; background: #0f1115; color: #e6edf3; border: 1px solid #2f3541; border-left: none; border-radius: 0 6px 6px 0; padding: 0.75rem; resize: none; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 1.3rem; line-height: 1.45; }
+        .text-editor-area:focus { outline: none; border-color: #0d6efd; box-shadow: 0 0 0 2px rgba(13,110,253,0.15); }
         
         /* Resizer */
         #resizer {
@@ -174,6 +218,18 @@
         .form-control:focus, .form-select:focus { background-color: #333; border-color: #0d6efd; color: #fff; box-shadow: none; }
         .btn-outline-secondary { color: #aaa; border-color: #444; }
         .btn-outline-secondary:hover { background-color: #333; border-color: #555; color: #fff; }
+
+        /* Unified font size for right explorer panel */
+        #file-explorer,
+        #file-explorer .form-control,
+        #file-explorer .form-select,
+        #file-explorer .btn,
+        #file-explorer .small,
+        #file-explorer .file-item,
+        #file-explorer .size,
+        #file-explorer .name {
+            font-size: 1.2rem !important;
+        }
     </style>
 </head>
 <body>
@@ -194,17 +250,17 @@
             <div class="mb-3">
                 <label class="form-label small text-secondary">Auth Type</label>
                 <select id="auth_type" class="form-select" onchange="toggleAuth()">
-                    <option value="password">Password</option>
                     <option value="key">Private Key</option>
+                    <option value="password">Password</option>
                 </select>
             </div>
 
-            <div id="password-input" class="mb-3">
+            <div id="password-input" class="mb-3 hidden">
                 <label class="form-label small text-secondary">Password</label>
                 <input id="pass" class="form-control" placeholder="Password" type="password" />
             </div>
 
-            <div id="key-input" class="mb-3 hidden">
+            <div id="key-input" class="mb-3">
                 <label class="form-label small text-secondary">Private Key</label>
                 <textarea id="key" class="form-control" style="height: 80px;" placeholder="Paste Private Key..."></textarea>
             </div>
@@ -251,6 +307,9 @@
                     </div>
                     <div class="btn-group btn-group-sm flex-shrink-0">
                         <input type="file" id="fileInput" class="hidden" />
+                        <button onclick="openNewTextFileModal()" class="btn btn-outline-primary py-0 px-2" title="New Text File">
+                            <i class="bi bi-file-earmark-plus"></i>
+                        </button>
                         <button onclick="document.getElementById('fileInput').click()" class="btn btn-outline-success py-0 px-2" title="Upload File">
                             <i class="bi bi-cloud-upload"></i>
                         </button>
@@ -305,6 +364,35 @@
         </div>
     </div>
 
+    <div class="modal fade" id="newTextFileModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title mb-0">New Text File</h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label small text-secondary">File Name</label>
+                    <input id="new-text-filename" class="form-control form-control-sm mb-2" placeholder="untitled" />
+                    <label class="form-label small text-secondary">Type</label>
+                    <select id="new-text-ext" class="form-select form-select-sm">
+                        <option value="txt">txt</option>
+                        <option value="md">md</option>
+                        <option value="py">py</option>
+                        <option value="html">html</option>
+                        <option value="js">js</option>
+                        <option value="css">css</option>
+                    </select>
+                    <div class="small text-secondary mt-2 text-truncate" id="new-text-target-path"></div>
+                </div>
+                <div class="modal-footer border-secondary py-2">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="createNewTextFile()">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         function toggleAuth() {
@@ -322,15 +410,46 @@
         let isUploading = false;
         let lastTerminalWidth = null;
         const textEncoder = new TextEncoder();
+        let previewEditorCounter = 0;
+        let newTextFileModal = null;
+        let mermaidInitialized = false;
+        let previewIndex = new Map(); // normalizedPath -> tabId
+
+        function updateBottomBarHeight() {
+            const bar = document.getElementById('bottom-control-bar');
+            const h = bar && bar.style.display !== 'none' ? bar.offsetHeight : 0;
+            document.documentElement.style.setProperty('--bottom-bar-h', `${h || 0}px`);
+        }
+
+        function fitTerminalById(id) {
+            if (!id || !tabs[id] || tabs[id].type !== 'terminal') return;
+            const t = tabs[id];
+            requestAnimationFrame(() => {
+                t.fitAddon.fit();
+                sendResize(id);
+                setTimeout(() => {
+                    if (tabs[id] && tabs[id].type === 'terminal') {
+                        tabs[id].fitAddon.fit();
+                        sendResize(id);
+                    }
+                }, 50);
+            });
+        }
+
+        function fitActiveTerminal() {
+            fitTerminalById(activeTabId);
+        }
 
         function logout() {
             Object.keys(tabs).forEach(id => closeTab(id));
+            previewIndex.clear();
             tabCounter = 0;
             sid = null;
             document.getElementById('login-overlay').classList.remove('hidden');
             document.getElementById('bottom-control-bar').style.display = 'none';
             document.getElementById('file-explorer').classList.add('hidden');
             document.getElementById('resizer').classList.add('hidden');
+            updateBottomBarHeight();
         }
 
         function addTab(type = 'terminal', previewData = null) {
@@ -359,27 +478,29 @@
             container.appendChild(instanceElem);
 
             let tabObj = { id, type, element: instanceElem };
+            if (type === 'preview' && previewData && previewData.path) {
+                tabObj.previewPath = previewData.path;
+                tabObj.previewKey = getPreviewKey(previewData.path);
+            }
 
             if (type === 'terminal') {
                 const term = new Terminal({ 
                     theme: { background: '#000' }, 
                     cursorBlink: true,
                     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-                    fontSize: 14
+                    fontSize: 19,
+                    lineHeight: 1.2
                 });
                 const fitAddon = new FitAddon.FitAddon();
                 term.loadAddon(fitAddon);
                 term.open(instanceElem);
                 instanceElem.addEventListener('click', () => term.focus());
 
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                // Detect base path for proxy support
-                let basePath = window.location.pathname;
-                if (!basePath.endsWith('/')) {
-                    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
-                }
-                const wsUrl = `${protocol}//${window.location.host}${basePath}ws?sid=${sid}`;
-                const socket = new WebSocket(wsUrl);
+                const baseUrl = new URL('.', window.location.href);
+                const wsUrl = new URL('ws', baseUrl);
+                wsUrl.searchParams.set('sid', sid);
+                wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const socket = new WebSocket(wsUrl.toString());
                 socket.binaryType = 'arraybuffer';
 
                 socket.onmessage = (e) => {
@@ -388,7 +509,7 @@
                 socket.onclose = () => {
                     setTimeout(() => closeTab(id), 500);
                 };
-                socket.onopen = () => sendResize(id);
+                socket.onopen = () => fitTerminalById(id);
 
                 term.onData(data => {
                     if (socket.readyState === WebSocket.OPEN) {
@@ -402,14 +523,131 @@
             }
 
             tabs[id] = tabObj;
+            if (type === 'preview' && tabObj.previewKey) {
+                previewIndex.set(tabObj.previewKey, id);
+            }
             switchTab(id);
+        }
+
+        function isPreviewSupportedExt(ext) {
+            return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'docx', 'xlsx'].includes(ext);
+        }
+
+        function isEditableTextExt(ext) {
+            return ['txt', 'py', 'md', 'html', 'htm', 'js', 'css'].includes(ext);
+        }
+
+        function escapeHtml(s) {
+            return String(s || '').replace(/[&<>"']/g, (c) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[c]));
+        }
+
+        function splitRemotePath(fullPath) {
+            const idx = fullPath.lastIndexOf('/');
+            if (idx < 0) return { dir: '.', name: fullPath };
+            if (idx === 0) return { dir: '/', name: fullPath.slice(1) };
+            return { dir: fullPath.slice(0, idx), name: fullPath.slice(idx + 1) };
+        }
+
+        function joinRemotePath(dir, name) {
+            if (!dir || dir === '.') return name;
+            if (dir === '/') return `/${name}`;
+            return `${dir}/${name}`;
+        }
+
+        function getPreviewKey(pathStr) {
+            return normalizePath(pathStr || '/');
+        }
+
+        function updatePreviewIndexForTab(container, oldPath, newPath) {
+            if (!container) return;
+            const tabId = container.id.replace('instance-', '');
+            if (!tabId) return;
+            const oldKey = oldPath ? getPreviewKey(oldPath) : '';
+            const newKey = newPath ? getPreviewKey(newPath) : '';
+            if (oldKey && previewIndex.get(oldKey) === tabId) {
+                previewIndex.delete(oldKey);
+            }
+            if (newKey) {
+                previewIndex.set(newKey, tabId);
+            }
+            if (tabs[tabId]) {
+                tabs[tabId].previewPath = newPath;
+                tabs[tabId].previewKey = newKey;
+            }
+        }
+
+        function sanitizeFileName(name) {
+            return String(name || '').trim().replace(/^\.+$/, '').replace(/[\\/]/g, '');
+        }
+
+        function ensureFileExt(name, ext) {
+            if (!name) return `untitled.${ext}`;
+            if (name.includes('.')) return name;
+            return `${name}.${ext}`;
+        }
+
+        function updatePreviewTabTitle(container, fileName, isDirty = false) {
+            const tabId = container.id.replace('instance-', '');
+            const link = document.getElementById(`link-${tabId}`);
+            if (!link) return;
+            const title = `Preview: ${fileName}${isDirty ? '*' : ''}`;
+            const span = link.querySelector('span');
+            if (span) span.textContent = title;
+            link.title = title;
+        }
+
+        function getMimeTypeByName(name) {
+            const ext = name.split('.').pop().toLowerCase();
+            const mimeMap = {
+                jpg: 'image/jpeg',
+                jpeg: 'image/jpeg',
+                png: 'image/png',
+                gif: 'image/gif',
+                webp: 'image/webp',
+                svg: 'image/svg+xml',
+                mp4: 'video/mp4',
+                webm: 'video/webm',
+                ogg: 'application/ogg',
+                mp3: 'audio/mpeg',
+                wav: 'audio/wav',
+                pdf: 'application/pdf',
+                txt: 'text/plain',
+                py: 'text/x-python',
+                md: 'text/markdown',
+                html: 'text/html',
+                htm: 'text/html',
+                js: 'text/javascript',
+                css: 'text/css',
+                json: 'application/json',
+                csv: 'text/csv',
+                xml: 'application/xml',
+                zip: 'application/zip',
+                docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            };
+            return mimeMap[ext] || 'application/octet-stream';
+        }
+
+        function buildRawFileUrl(path, name, includeMeta = false) {
+            const params = new URLSearchParams({ sid: sid, path: path });
+            if (includeMeta) {
+                params.set('name', name);
+                params.set('mime', getMimeTypeByName(name));
+            }
+            return `sftp/raw?${params.toString()}`;
         }
 
         function renderPreview(container, data) {
             const { path, name } = data;
-            const params = new URLSearchParams({ sid: sid, path: path });
-            const url = `sftp/raw?${params.toString()}`;
+            const url = buildRawFileUrl(path, name);
             const ext = name.split('.').pop().toLowerCase();
+            container.classList.remove('editor-mode');
 
             if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
                 container.innerHTML = `<img src="${url}" loading="lazy">`;
@@ -418,14 +656,593 @@
             } else if (['mp3', 'wav', 'ogg'].includes(ext)) {
                 container.innerHTML = `<audio src="${url}" controls autoplay class="w-75"></audio>`;
             } else if (ext === 'pdf') {
-                container.innerHTML = `<iframe src="${url}"></iframe>`;
+                renderPdfPreview(container, data);
+            } else if (ext === 'docx') {
+                renderDocxPreview(container, data);
+            } else if (ext === 'xlsx') {
+                renderXlsxPreview(container, data);
+            } else if (ext === 'md') {
+                renderMarkdownEditor(container, data);
+            } else if (isEditableTextExt(ext)) {
+                renderTextEditor(container, data);
             } else {
                 container.innerHTML = `<div class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i> Preview not supported.</div>`;
             }
         }
 
-        function previewFile(path, name) {
-            addTab('preview', { path, name });
+        function renderPdfPreview(container, data) {
+            const baseUrl = buildRawFileUrl(data.path, data.name);
+            const pdfUrl = `${baseUrl}#view=FitH`;
+            const fallbackUrl = buildRawFileUrl(data.path, data.name, true);
+            const frameId = `pdf-frame-${++previewEditorCounter}`;
+            const statusId = `pdf-status-${previewEditorCounter}`;
+            const openBtnId = `pdf-open-${previewEditorCounter}`;
+            let loaded = false;
+
+            container.innerHTML = `
+                <div class="pdf-preview-wrap">
+                    <div class="pdf-preview-toolbar">
+                        <div class="text-editor-name text-truncate" title="${escapeHtml(data.name)}">${escapeHtml(data.name)}</div>
+                        <button id="${openBtnId}" class="btn btn-sm btn-outline-secondary">Open In New Tab</button>
+                    </div>
+                    <div id="${statusId}" class="pdf-preview-status">Loading PDF preview...</div>
+                    <iframe id="${frameId}" class="pdf-preview-frame" src="${pdfUrl}"></iframe>
+                </div>
+            `;
+
+            const statusEl = document.getElementById(statusId);
+            const frameEl = document.getElementById(frameId);
+            const openBtn = document.getElementById(openBtnId);
+
+            openBtn.addEventListener('click', () => {
+                window.open(fallbackUrl, '_blank');
+            });
+
+            frameEl.addEventListener('load', () => {
+                loaded = true;
+                statusEl.textContent = '';
+            });
+
+            setTimeout(() => {
+                if (loaded) return;
+                statusEl.textContent = 'If preview is blocked, use "Open In New Tab".';
+            }, 3000);
+        }
+
+        function renderOfficeFallback(statusEl, fallbackUrl, errMsg) {
+            statusEl.innerHTML = `<span class="text-warning">${escapeHtml(errMsg)}</span> <button class="btn btn-sm btn-outline-secondary ms-2">Open In New Tab</button>`;
+            const btn = statusEl.querySelector('button');
+            if (btn) btn.addEventListener('click', () => window.open(fallbackUrl, '_blank'));
+        }
+
+        async function renderDocxPreview(container, data) {
+            const fallbackUrl = buildRawFileUrl(data.path, data.name, true);
+            const sourceUrl = buildRawFileUrl(data.path, data.name);
+            const bodyId = `office-body-${++previewEditorCounter}`;
+            const statusId = `office-status-${previewEditorCounter}`;
+            const openBtnId = `office-open-${previewEditorCounter}`;
+            container.innerHTML = `
+                <div class="office-preview-wrap">
+                    <div class="office-preview-toolbar">
+                        <div class="text-editor-name text-truncate" title="${escapeHtml(data.name)}">${escapeHtml(data.name)}</div>
+                        <button id="${openBtnId}" class="btn btn-sm btn-outline-secondary">Open In New Tab</button>
+                    </div>
+                    <div id="${statusId}" class="office-preview-status">Loading DOCX preview...</div>
+                    <div id="${bodyId}" class="office-preview-body"></div>
+                </div>
+            `;
+            const statusEl = document.getElementById(statusId);
+            document.getElementById(openBtnId).addEventListener('click', () => window.open(fallbackUrl, '_blank'));
+            const bodyEl = document.getElementById(bodyId);
+            if (!window.docx || typeof window.docx.renderAsync !== 'function') {
+                renderOfficeFallback(statusEl, fallbackUrl, 'DOCX parser is not available.');
+                return;
+            }
+            try {
+                const res = await fetch(sourceUrl, { credentials: 'same-origin' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const buf = await res.arrayBuffer();
+                await window.docx.renderAsync(buf, bodyEl, null, {
+                    className: 'docx-preview',
+                    inWrapper: true,
+                    ignoreWidth: false,
+                    ignoreHeight: true
+                });
+                statusEl.textContent = '';
+            } catch (err) {
+                renderOfficeFallback(statusEl, fallbackUrl, `DOCX preview failed: ${err.message || err}`);
+            }
+        }
+
+        function buildXlsxTableHtml(rows) {
+            const safeRows = Array.isArray(rows) ? rows : [];
+            if (!safeRows.length) return '<div class="text-warning">No data in this sheet.</div>';
+            const maxCols = safeRows.reduce((m, r) => Math.max(m, Array.isArray(r) ? r.length : 0), 0);
+            const header = Array.from({ length: maxCols }, (_, i) => `<th>${String.fromCharCode(65 + (i % 26))}${i >= 26 ? Math.floor(i / 26) : ''}</th>`).join('');
+            const body = safeRows.map((row) => {
+                const cells = Array.from({ length: maxCols }, (_, i) => `<td>${escapeHtml(row && row[i] != null ? String(row[i]) : '')}</td>`).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+            return `<div class="xlsx-table-wrap"><table class="xlsx-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`;
+        }
+
+        async function renderXlsxPreview(container, data) {
+            const fallbackUrl = buildRawFileUrl(data.path, data.name, true);
+            const sourceUrl = buildRawFileUrl(data.path, data.name);
+            const statusId = `office-status-${++previewEditorCounter}`;
+            const bodyId = `office-body-${previewEditorCounter}`;
+            const tabsId = `office-tabs-${previewEditorCounter}`;
+            const openBtnId = `office-open-${previewEditorCounter}`;
+            container.innerHTML = `
+                <div class="office-preview-wrap">
+                    <div class="office-preview-toolbar">
+                        <div class="text-editor-name text-truncate" title="${escapeHtml(data.name)}">${escapeHtml(data.name)}</div>
+                        <button id="${openBtnId}" class="btn btn-sm btn-outline-secondary">Open In New Tab</button>
+                    </div>
+                    <div id="${statusId}" class="office-preview-status">Loading XLSX preview...</div>
+                    <div class="office-preview-body">
+                        <div id="${tabsId}" class="xlsx-sheet-tabs"></div>
+                        <div id="${bodyId}"></div>
+                    </div>
+                </div>
+            `;
+            const statusEl = document.getElementById(statusId);
+            document.getElementById(openBtnId).addEventListener('click', () => window.open(fallbackUrl, '_blank'));
+            if (!window.XLSX) {
+                renderOfficeFallback(statusEl, fallbackUrl, 'XLSX parser is not available.');
+                return;
+            }
+            try {
+                const res = await fetch(sourceUrl, { credentials: 'same-origin' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(buf, { type: 'array' });
+                const tabsEl = document.getElementById(tabsId);
+                const bodyEl = document.getElementById(bodyId);
+                if (!wb.SheetNames || !wb.SheetNames.length) {
+                    bodyEl.innerHTML = '<div class="text-warning">Workbook is empty.</div>';
+                    statusEl.textContent = '';
+                    return;
+                }
+                const showSheet = (sheetName) => {
+                    const ws = wb.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                    bodyEl.innerHTML = buildXlsxTableHtml(rows);
+                    Array.from(tabsEl.querySelectorAll('button')).forEach((btn) => {
+                        btn.classList.toggle('active', btn.dataset.sheet === sheetName);
+                    });
+                };
+                wb.SheetNames.forEach((sheetName, idx) => {
+                    const btn = document.createElement('button');
+                    btn.className = `btn btn-sm btn-outline-secondary${idx === 0 ? ' active' : ''}`;
+                    btn.textContent = sheetName;
+                    btn.dataset.sheet = sheetName;
+                    btn.addEventListener('click', () => showSheet(sheetName));
+                    tabsEl.appendChild(btn);
+                });
+                showSheet(wb.SheetNames[0]);
+                statusEl.textContent = '';
+            } catch (err) {
+                renderOfficeFallback(statusEl, fallbackUrl, `XLSX preview failed: ${err.message || err}`);
+            }
+        }
+
+        async function renderMermaidIn(viewer) {
+            if (typeof mermaid === 'undefined') return;
+            if (!mermaidInitialized) {
+                mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'dark' });
+                mermaidInitialized = true;
+            }
+            const codeBlocks = Array.from(viewer.querySelectorAll('pre > code.language-mermaid'));
+            for (const codeEl of codeBlocks) {
+                const pre = codeEl.parentElement;
+                const box = document.createElement('div');
+                box.className = 'mermaid';
+                box.textContent = codeEl.textContent || '';
+                pre.replaceWith(box);
+            }
+            const nodes = Array.from(viewer.querySelectorAll('.mermaid'));
+            if (nodes.length === 0) return;
+            try {
+                await mermaid.run({ nodes: nodes });
+            } catch (e) {
+                nodes.forEach(node => {
+                    const err = document.createElement('div');
+                    err.className = 'mermaid-error';
+                    err.textContent = `Mermaid render error:\n${e.message || e}`;
+                    node.replaceWith(err);
+                });
+            }
+        }
+
+        function renderMarkdownHtml(text) {
+            if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+                return '<div class="text-warning">Markdown renderer is unavailable.</div>';
+            }
+            marked.setOptions({ gfm: true, breaks: true });
+            const rawHtml = marked.parse(text || '');
+            return DOMPurify.sanitize(rawHtml);
+        }
+
+        async function renderMarkdownEditor(container, data) {
+            const editorId = `md-editor-${++previewEditorCounter}`;
+            const statusId = `md-status-${previewEditorCounter}`;
+            const saveBtnId = `md-save-${previewEditorCounter}`;
+            const fileNameId = `md-name-${previewEditorCounter}`;
+            const lineNoId = `md-lineno-${previewEditorCounter}`;
+            const viewerId = `md-viewer-${previewEditorCounter}`;
+            const readBtnId = `md-read-${previewEditorCounter}`;
+            const editBtnId = `md-edit-${previewEditorCounter}`;
+            const editorBodyId = `md-editor-body-${previewEditorCounter}`;
+            const pathInfo = splitRemotePath(data.path);
+            const baseDir = pathInfo.dir;
+            const initialName = pathInfo.name || data.name || 'untitled.md';
+
+            container.classList.add('editor-mode');
+            container.innerHTML = `
+                <div class="text-editor-wrap">
+                    <div class="text-editor-toolbar">
+                        <div class="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden">
+                            <input id="${fileNameId}" class="form-control form-control-sm text-editor-filename" value="${escapeHtml(initialName)}" />
+                            <div class="text-editor-dir" title="${escapeHtml(baseDir)}">${escapeHtml(baseDir)}</div>
+                        </div>
+                        <div class="btn-group btn-group-sm me-1" role="group">
+                            <button id="${readBtnId}" class="btn btn-outline-secondary">Read</button>
+                            <button id="${editBtnId}" class="btn btn-outline-secondary">Edit</button>
+                        </div>
+                        <button id="${saveBtnId}" class="btn btn-sm btn-primary">Save</button>
+                    </div>
+                    <div id="${statusId}" class="text-editor-status">Loading...</div>
+                    <div id="${viewerId}" class="md-viewer"></div>
+                    <div id="${editorBodyId}" class="text-editor-body hidden">
+                        <div class="text-editor-lines-wrap"><pre id="${lineNoId}" class="text-editor-lines">1</pre></div>
+                        <textarea id="${editorId}" class="text-editor-area" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            `;
+
+            const textarea = document.getElementById(editorId);
+            const viewer = document.getElementById(viewerId);
+            const editorBody = document.getElementById(editorBodyId);
+            const statusEl = document.getElementById(statusId);
+            const saveBtn = document.getElementById(saveBtnId);
+            const fileNameInput = document.getElementById(fileNameId);
+            const lineNoEl = document.getElementById(lineNoId);
+            const readBtn = document.getElementById(readBtnId);
+            const editBtn = document.getElementById(editBtnId);
+            let savedContent = '';
+            let savedName = initialName;
+            let currentMode = 'read';
+
+            const updateLineNumbers = () => {
+                const count = Math.max(1, textarea.value.split('\n').length);
+                const lines = [];
+                for (let i = 1; i <= count; i++) lines.push(String(i));
+                lineNoEl.textContent = lines.join('\n');
+                lineNoEl.style.marginTop = `${-textarea.scrollTop}px`;
+            };
+
+            const refreshDirtyState = () => {
+                const currentName = sanitizeFileName(fileNameInput.value) || fileNameInput.value.trim() || initialName;
+                const isDirty = currentName !== savedName || textarea.value !== savedContent;
+                updatePreviewTabTitle(container, currentName, isDirty);
+            };
+
+            const renderReadMode = async () => {
+                viewer.innerHTML = renderMarkdownHtml(textarea.value);
+                await renderMermaidIn(viewer);
+            };
+
+            const setMode = async (mode) => {
+                currentMode = mode;
+                const read = mode === 'read';
+                viewer.classList.toggle('hidden', !read);
+                editorBody.classList.toggle('hidden', read);
+                readBtn.classList.toggle('btn-primary', read);
+                readBtn.classList.toggle('btn-outline-secondary', !read);
+                editBtn.classList.toggle('btn-primary', !read);
+                editBtn.classList.toggle('btn-outline-secondary', read);
+                if (read) {
+                    await renderReadMode();
+                } else {
+                    textarea.focus();
+                }
+            };
+
+            if (data.isNew) {
+                textarea.value = data.content || '';
+                savedContent = textarea.value;
+                statusEl.textContent = 'New file';
+            } else {
+                try {
+                    const resp = await fetch('sftp/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sid: sid,
+                            action: 'read_text',
+                            path: data.path
+                        })
+                    });
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const payload = await resp.json();
+                    textarea.value = payload.content || '';
+                    savedContent = textarea.value;
+                    statusEl.textContent = 'Loaded';
+                } catch (e) {
+                    textarea.disabled = true;
+                    saveBtn.disabled = true;
+                    readBtn.disabled = true;
+                    editBtn.disabled = true;
+                    statusEl.textContent = `Load failed: ${e.message}`;
+                    statusEl.style.color = '#f88';
+                    return;
+                }
+            }
+
+            updateLineNumbers();
+            refreshDirtyState();
+            await setMode('read');
+
+            textarea.addEventListener('input', () => {
+                updateLineNumbers();
+                refreshDirtyState();
+            });
+            textarea.addEventListener('scroll', updateLineNumbers);
+            fileNameInput.addEventListener('input', refreshDirtyState);
+            readBtn.addEventListener('click', () => setMode('read'));
+            editBtn.addEventListener('click', () => setMode('edit'));
+
+            const saveCurrent = async () => {
+                const rawName = sanitizeFileName(fileNameInput.value);
+                if (!rawName) {
+                    statusEl.textContent = 'Invalid file name';
+                    statusEl.style.color = '#f88';
+                    return;
+                }
+                const targetPath = joinRemotePath(baseDir, rawName);
+                const samePath = targetPath === data.path;
+                saveBtn.disabled = true;
+                statusEl.textContent = 'Saving...';
+                statusEl.style.color = '#aaa';
+
+                const doWrite = async (overwrite) => {
+                    return fetch('sftp/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sid: sid,
+                            action: 'write_text',
+                            path: targetPath,
+                            content: textarea.value,
+                            overwrite: overwrite
+                        })
+                    });
+                };
+
+                try {
+                    let resp = await doWrite(samePath || data.isNew);
+                    if (resp.status === 409) {
+                        const ok = confirm(`File "${rawName}" already exists. Overwrite?`);
+                        if (!ok) throw new Error('Canceled');
+                        resp = await doWrite(true);
+                    }
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const oldPath = data.path;
+                    data.path = targetPath;
+                    data.name = rawName;
+                    data.isNew = false;
+                    updatePreviewIndexForTab(container, oldPath, targetPath);
+                    savedName = rawName;
+                    savedContent = textarea.value;
+                    updatePreviewTabTitle(container, rawName, false);
+                    statusEl.textContent = `Saved: ${rawName}`;
+                    statusEl.style.color = '#9ad59f';
+                    if (currentMode === 'read') await renderReadMode();
+                    refreshFiles();
+                } catch (e) {
+                    statusEl.textContent = `Save failed: ${e.message}`;
+                    statusEl.style.color = '#f88';
+                } finally {
+                    saveBtn.disabled = false;
+                    refreshDirtyState();
+                }
+            };
+
+            saveBtn.addEventListener('click', saveCurrent);
+            textarea.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                    e.preventDefault();
+                    saveCurrent();
+                }
+            });
+        }
+
+        async function renderTextEditor(container, data) {
+            const editorId = `editor-${++previewEditorCounter}`;
+            const statusId = `editor-status-${previewEditorCounter}`;
+            const saveBtnId = `editor-save-${previewEditorCounter}`;
+            const fileNameId = `editor-name-${previewEditorCounter}`;
+            const lineNoId = `editor-lineno-${previewEditorCounter}`;
+            const pathInfo = splitRemotePath(data.path);
+            const baseDir = pathInfo.dir;
+            const initialName = pathInfo.name || data.name || 'untitled.txt';
+            container.classList.add('editor-mode');
+            container.innerHTML = `
+                <div class="text-editor-wrap">
+                    <div class="text-editor-toolbar">
+                        <div class="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden">
+                            <input id="${fileNameId}" class="form-control form-control-sm text-editor-filename" value="${escapeHtml(initialName)}" />
+                            <div class="text-editor-dir" title="${escapeHtml(baseDir)}">${escapeHtml(baseDir)}</div>
+                        </div>
+                        <button id="${saveBtnId}" class="btn btn-sm btn-primary">Save</button>
+                    </div>
+                    <div id="${statusId}" class="text-editor-status">Loading...</div>
+                    <div class="text-editor-body">
+                        <div class="text-editor-lines-wrap"><pre id="${lineNoId}" class="text-editor-lines">1</pre></div>
+                        <textarea id="${editorId}" class="text-editor-area" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            `;
+
+            const textarea = document.getElementById(editorId);
+            const statusEl = document.getElementById(statusId);
+            const saveBtn = document.getElementById(saveBtnId);
+            const fileNameInput = document.getElementById(fileNameId);
+            const lineNoEl = document.getElementById(lineNoId);
+            let savedContent = '';
+            let savedName = initialName;
+
+            const updateLineNumbers = () => {
+                const count = Math.max(1, textarea.value.split('\n').length);
+                const lines = [];
+                for (let i = 1; i <= count; i++) lines.push(String(i));
+                lineNoEl.textContent = lines.join('\n');
+                lineNoEl.style.marginTop = `${-textarea.scrollTop}px`;
+            };
+
+            const refreshDirtyState = () => {
+                const currentName = sanitizeFileName(fileNameInput.value) || fileNameInput.value.trim() || initialName;
+                const isDirty = currentName !== savedName || textarea.value !== savedContent;
+                updatePreviewTabTitle(container, currentName, isDirty);
+            };
+
+            if (data.isNew) {
+                textarea.value = data.content || '';
+                statusEl.textContent = 'New file';
+                savedContent = textarea.value;
+            } else {
+                try {
+                    const resp = await fetch('sftp/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sid: sid,
+                            action: 'read_text',
+                            path: data.path
+                        })
+                    });
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const payload = await resp.json();
+                    textarea.value = payload.content || '';
+                    savedContent = textarea.value;
+                    statusEl.textContent = 'Loaded';
+                } catch (e) {
+                    textarea.disabled = true;
+                    saveBtn.disabled = true;
+                    statusEl.textContent = `Load failed: ${e.message}`;
+                    statusEl.style.color = '#f88';
+                    return;
+                }
+            }
+
+            updateLineNumbers();
+            refreshDirtyState();
+            textarea.addEventListener('input', () => {
+                updateLineNumbers();
+                refreshDirtyState();
+            });
+            textarea.addEventListener('scroll', updateLineNumbers);
+            fileNameInput.addEventListener('input', refreshDirtyState);
+
+            const saveCurrent = async () => {
+                const rawName = sanitizeFileName(fileNameInput.value);
+                if (!rawName) {
+                    statusEl.textContent = 'Invalid file name';
+                    statusEl.style.color = '#f88';
+                    return;
+                }
+                const targetPath = joinRemotePath(baseDir, rawName);
+                const samePath = targetPath === data.path;
+                saveBtn.disabled = true;
+                statusEl.textContent = 'Saving...';
+                statusEl.style.color = '#aaa';
+
+                const doWrite = async (overwrite) => {
+                    return fetch('sftp/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sid: sid,
+                            action: 'write_text',
+                            path: targetPath,
+                            content: textarea.value,
+                            overwrite: overwrite
+                        })
+                    });
+                };
+
+                try {
+                    let resp = await doWrite(samePath || data.isNew);
+                    if (resp.status === 409) {
+                        const ok = confirm(`File "${rawName}" already exists. Overwrite?`);
+                        if (!ok) throw new Error('Canceled');
+                        resp = await doWrite(true);
+                    }
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const oldPath = data.path;
+                    data.path = targetPath;
+                    data.name = rawName;
+                    data.isNew = false;
+                    updatePreviewIndexForTab(container, oldPath, targetPath);
+                    savedName = rawName;
+                    savedContent = textarea.value;
+                    updatePreviewTabTitle(container, rawName, false);
+                    statusEl.textContent = `Saved: ${rawName}`;
+                    statusEl.style.color = '#9ad59f';
+                    refreshFiles();
+                } catch (e) {
+                    statusEl.textContent = `Save failed: ${e.message}`;
+                    statusEl.style.color = '#f88';
+                } finally {
+                    saveBtn.disabled = false;
+                    refreshDirtyState();
+                }
+            };
+
+            saveBtn.addEventListener('click', saveCurrent);
+            textarea.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                    e.preventDefault();
+                    saveCurrent();
+                }
+            });
+        }
+
+        function openNewTextFileModal() {
+            if (!newTextFileModal) {
+                newTextFileModal = new bootstrap.Modal(document.getElementById('newTextFileModal'));
+            }
+            const input = document.getElementById('new-text-filename');
+            const ext = document.getElementById('new-text-ext');
+            input.value = 'untitled';
+            ext.value = 'txt';
+            const dir = currentExplorerPath || '/';
+            document.getElementById('new-text-target-path').textContent = `Dir: ${dir}`;
+            newTextFileModal.show();
+            setTimeout(() => input.focus(), 150);
+        }
+
+        function createNewTextFile() {
+            const nameInput = document.getElementById('new-text-filename');
+            const extInput = document.getElementById('new-text-ext');
+            let fileName = sanitizeFileName(nameInput.value);
+            fileName = ensureFileExt(fileName, extInput.value);
+            if (!fileName || fileName.includes('/')) {
+                alert('Invalid file name');
+                return;
+            }
+            const dir = currentExplorerPath || '/';
+            const fullPath = joinRemotePath(dir, fileName);
+            const key = getPreviewKey(fullPath);
+            const existingTabId = previewIndex.get(key);
+            if (existingTabId && tabs[existingTabId]) {
+                if (newTextFileModal) newTextFileModal.hide();
+                switchTab(existingTabId);
+                return;
+            }
+            if (newTextFileModal) newTextFileModal.hide();
+            addTab('preview', { path: fullPath, name: fileName, isNew: true, content: '' });
         }
 
         function switchTab(id) {
@@ -439,17 +1256,18 @@
                 tabs[id].element.classList.add('active');
                 document.getElementById(`link-${id}`).classList.add('active');
                 if (tabs[id].type === 'terminal') {
-                    setTimeout(() => {
-                        tabs[id].fitAddon.fit();
-                        tabs[id].term.focus();
-                        sendResize(id);
-                    }, 50);
+                    tabs[id].term.focus();
+                    fitTerminalById(id);
                 }
             }
         }
 
         function closeTab(id) {
             if (!tabs[id]) return;
+            const closing = tabs[id];
+            if (closing.type === 'preview' && closing.previewKey && previewIndex.get(closing.previewKey) === id) {
+                previewIndex.delete(closing.previewKey);
+            }
             if (tabs[id].type === 'terminal') {
                 if (tabs[id].socket.readyState === WebSocket.OPEN) tabs[id].socket.close();
                 tabs[id].term.dispose();
@@ -524,12 +1342,7 @@
             btn.classList.toggle('text-primary', !isHidden);
             btn.classList.toggle('text-secondary', isHidden);
 
-            setTimeout(() => {
-                if (activeTabId && tabs[activeTabId]) {
-                    tabs[activeTabId].fitAddon.fit();
-                    sendResize();
-                }
-            }, 50);
+            fitActiveTerminal();
         }
 
         // Resizer logic
@@ -559,8 +1372,7 @@
                 fileExplorer.style.flex = '1';
                 
                 if (activeTabId && tabs[activeTabId]) {
-                    tabs[activeTabId].fitAddon.fit();
-                    sendResize();
+                    fitActiveTerminal();
                 }
             }
         });
@@ -571,18 +1383,50 @@
                 resizer.classList.remove('dragging');
                 document.body.style.cursor = 'default';
                 if (activeTabId && tabs[activeTabId]) {
-                    tabs[activeTabId].fitAddon.fit();
-                    sendResize();
+                    fitActiveTerminal();
                 }
             }
         });
 
         let currentExplorerPath = '';
+        let homeRoot = '/';
         let viewMode = 'list'; // 'list' or 'grid'
         let showHidden = false;
         let showThumbnails = false;
         let cachedFiles = [];
         let selectedItems = new Set();
+
+        function normalizePath(pathStr) {
+            const parts = String(pathStr || '/').split('/');
+            const out = [];
+            for (const part of parts) {
+                if (!part || part === '.') continue;
+                if (part === '..') {
+                    if (out.length > 0) out.pop();
+                    continue;
+                }
+                out.push(part);
+            }
+            return '/' + out.join('/');
+        }
+
+        function normalizePathWithinHome(pathStr) {
+            const root = normalizePath(homeRoot || '/');
+            let p = String(pathStr || root).trim();
+            if (!p) p = root;
+            if (!p.startsWith('/')) {
+                p = normalizePath(joinRemotePath(currentExplorerPath || root, p));
+            } else {
+                p = normalizePath(p);
+            }
+            if (p === root || p.startsWith(root + '/')) return p;
+            return root;
+        }
+
+        function setExplorerPath(pathStr) {
+            currentExplorerPath = normalizePathWithinHome(pathStr);
+            updatePathDisplay(currentExplorerPath);
+        }
 
         function toggleHiddenFiles() {
             showHidden = !showHidden;
@@ -701,16 +1545,13 @@
         }
 
         function goHome() {
-            const user = document.getElementById('user').value.trim();
-            if (!user) return;
-            currentExplorerPath = `/home/${user}`;
-            updatePathDisplay(currentExplorerPath);
+            setExplorerPath(homeRoot);
             refreshFiles();
         }
 
         function syncTerminalPath() {
             if (currentExplorerPath) {
-                sendInput(`cd "${currentExplorerPath}"\r`);
+                sendInput(currentExplorerPath);
             }
         }
 
@@ -735,7 +1576,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         sid: sid,
-                        path: currentExplorerPath || '.'
+                        path: normalizePathWithinHome(currentExplorerPath || homeRoot)
                     })
                 });
                 
@@ -758,17 +1599,18 @@
             if (!files) files = [];
 
             // Back button
-            if (currentExplorerPath && currentExplorerPath !== '/' && currentExplorerPath !== '.') {
+            const normalizedCurrent = normalizePathWithinHome(currentExplorerPath || homeRoot);
+            const normalizedHome = normalizePath(homeRoot || '/');
+            if (normalizedCurrent !== normalizedHome) {
                 const backItem = document.createElement('div');
                 backItem.className = 'file-item';
                 backItem.title = 'Go back';
                 backItem.innerHTML = `<span class="icon text-primary"><i class="bi bi-arrow-90deg-up"></i></span> <span class="name text-primary">..</span>`;
                 backItem.onclick = () => {
-                    const parts = currentExplorerPath.split('/').filter(p => p);
+                    const parts = normalizedCurrent.split('/').filter(p => p);
                     parts.pop();
-                    currentExplorerPath = '/' + parts.join('/');
-                    if (currentExplorerPath === '/') currentExplorerPath = '';
-                    updatePathDisplay(currentExplorerPath || '/');
+                    const parent = '/' + parts.join('/');
+                    setExplorerPath(parent);
                     refreshFiles();
                 };
                 listContainer.appendChild(backItem);
@@ -787,7 +1629,7 @@
                 if (filter && !file.name.toLowerCase().includes(filter)) {
                     return;
                 }
-                const fullPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
+                const fullPath = normalizePath(joinRemotePath(currentExplorerPath || homeRoot, file.name));
                 const isSelected = selectedItems.has(fullPath);
 
                 const item = document.createElement('div');
@@ -840,8 +1682,7 @@
                 
                 item.onclick = () => {
                     if (file.is_dir) {
-                        currentExplorerPath = (currentExplorerPath === '' ? '' : currentExplorerPath + '/') + file.name;
-                        updatePathDisplay(currentExplorerPath);
+                        setExplorerPath(joinRemotePath(currentExplorerPath || homeRoot, file.name));
                         refreshFiles();
                     }
                 };
@@ -861,6 +1702,18 @@
         }
 
         function previewFile(path, name) {
+            const url = buildRawFileUrl(path, name, true);
+            const ext = name.split('.').pop().toLowerCase();
+            if (!isPreviewSupportedExt(ext) && !isEditableTextExt(ext)) {
+                window.open(url, '_blank');
+                return;
+            }
+            const key = getPreviewKey(path);
+            const existingTabId = previewIndex.get(key);
+            if (existingTabId && tabs[existingTabId]) {
+                switchTab(existingTabId);
+                return;
+            }
             addTab('preview', { path, name });
         }
 
@@ -870,6 +1723,29 @@
             const sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function afterLogin(targetPath = '/', loginHomeRoot = '/') {
+            // Cleanup old tabs if any
+            Object.keys(tabs).forEach(id => closeTab(id));
+            previewIndex.clear();
+            tabCounter = 0;
+
+            document.getElementById('login-overlay').classList.add('hidden');
+            document.getElementById('file-explorer').classList.remove('hidden');
+            document.getElementById('resizer').classList.remove('hidden');
+            document.getElementById('bottom-control-bar').style.display = 'flex';
+            updateBottomBarHeight();
+
+            homeRoot = normalizePath(loginHomeRoot || '/');
+            setExplorerPath(targetPath || homeRoot);
+            
+            setViewMode('list');
+            refreshFiles();
+
+            // Add first tab
+            addTab();
+            setTimeout(() => fitActiveTerminal(), 0);
         }
 
         async function connect() {
@@ -888,6 +1764,7 @@
                 if (!resp.ok) throw new Error(await resp.text());
                 const data = await resp.json();
                 sid = data.sid;
+                homeRoot = normalizePath(data.home_root || `/home/${creds.user}`);
             } catch (e) {
                 alert("Login failed: " + e.message);
                 return;
@@ -905,32 +1782,46 @@
             } else {
                 localStorage.removeItem('ssh_creds');
             }
-
-            // Cleanup old tabs if any
-            Object.keys(tabs).forEach(id => closeTab(id));
-            tabCounter = 0;
-
-            document.getElementById('login-overlay').classList.add('hidden');
-            document.getElementById('file-explorer').classList.remove('hidden');
-            document.getElementById('resizer').classList.remove('hidden');
-            document.getElementById('bottom-control-bar').style.display = 'flex';
-            
             // Restore saved path or use default home
             const saved = localStorage.getItem('ssh_creds');
-            let targetPath = `/home/${creds.user}`;
+            let targetPath = homeRoot;
             if (saved) {
                 const savedData = JSON.parse(saved);
                 if (savedData.path) targetPath = savedData.path;
             }
+            afterLogin(targetPath, homeRoot);
+        }
 
-            currentExplorerPath = targetPath;
-            updatePathDisplay(currentExplorerPath);
-            
-            setViewMode('list');
-            refreshFiles();
+        function getQueryParam(name) {
+            const params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
 
-            // Add first tab
-            addTab();
+        async function autoLoginSSO() {
+            const token = getQueryParam('sso_token') || getQueryParam('token');
+            if (!token) return;
+            try {
+                const resp = await fetch('login/sso', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sso_token: token })
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                sid = data.sid;
+                homeRoot = normalizePath(data.home_root || '/');
+                // Remove token from URL to avoid leakage
+                if (history && history.replaceState) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('sso_token');
+                    url.searchParams.delete('token');
+                    history.replaceState({}, '', url.pathname + url.search);
+                }
+                afterLogin(homeRoot, homeRoot);
+            } catch (e) {
+                console.error("SSO auto-login failed", e);
+                // SSO might not be configured on this specific server, so just fail silently or log
+            }
         }
 
         function setUploadProgress(percent, status, show = true) {
@@ -974,7 +1865,7 @@
             try {
                 const result = await new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
-                    xhr.open('POST', 'upload');
+                    xhr.open('POST', './upload');
                     xhr.upload.onprogress = (e) => {
                         if (!e.lengthComputable) return;
                         const percent = Math.round((e.loaded / e.total) * 100);
@@ -1009,6 +1900,7 @@
         }
 
         window.onresize = () => {
+            updateBottomBarHeight();
             if (terminalArea.style.width && terminalArea.style.width.includes('px')) {
                 const container = document.getElementById('main-container');
                 if (container) {
@@ -1019,10 +1911,7 @@
                     }
                 }
             }
-            if (activeTabId && tabs[activeTabId]) {
-                tabs[activeTabId].fitAddon.fit();
-                sendResize();
-            }
+            fitActiveTerminal();
         };
 
         function updateDefaultRemotePath() {
@@ -1075,6 +1964,7 @@
             }
         });
 
+        updateBottomBarHeight();
         fetch('config').then(r => r.json()).then(data => {
             const hostSelect = document.getElementById('host-select');
             if (data.hosts && data.hosts.length > 0) {
@@ -1098,13 +1988,17 @@
                 }
 
                 document.getElementById('user').value = creds.user || '';
-                document.getElementById('auth_type').value = creds.auth_type || 'password';
+                document.getElementById('auth_type').value = creds.auth_type || 'key';
                 document.getElementById('pass').value = creds.pass || '';
                 document.getElementById('key').value = creds.key || '';
                 document.getElementById('remember_me').checked = true;
                 toggleAuth();
             }
-        }).catch(e => console.error("Config load failed", e));
+            autoLoginSSO();
+        }).catch(e => {
+            console.error("Config load failed", e);
+            autoLoginSSO();
+        });
     </script>
 </body>
 </html>

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -37,6 +39,8 @@ type Session struct {
 	ID         string
 	SSHClient  *ssh.Client
 	SFTPClient *sftp.Client
+	Username   string
+	HomeRoot   string
 	LastAccess time.Time
 }
 
@@ -51,10 +55,10 @@ func getSSHConfig(user, authType, pass, key string) (*ssh.ClientConfig, error) {
 		if key == "" {
 			return nil, fmt.Errorf("private key is empty")
 		}
-		
+
 		var signer ssh.Signer
 		var err error
-		
+
 		signer, err = ssh.ParsePrivateKey([]byte(key))
 		if err != nil {
 			log.Printf("Non-encrypted key parse failed: %v. Attempting with passphrase.", err)
@@ -63,13 +67,7 @@ func getSSHConfig(user, authType, pass, key string) (*ssh.ClientConfig, error) {
 				return nil, fmt.Errorf("failed to parse private key: %v", err)
 			}
 		}
-		
-		// Log the public key for the user to verify against authorized_keys
-		pubKey := signer.PublicKey()
-		authorizedKey := string(ssh.MarshalAuthorizedKey(pubKey))
-		log.Printf("Parsed Key Type: %s", pubKey.Type())
-		log.Printf("Public Key for authorized_keys:\n%s", authorizedKey)
-		
+
 		auth = append(auth, ssh.PublicKeys(signer))
 	} else {
 		if globalConfig.DisablePasswordLogin {
@@ -107,7 +105,7 @@ func loadConfig() {
 
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Request: %s %s from %s", r.Method, r.URL.String(), r.RemoteAddr)
+		log.Printf("Request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -168,8 +166,6 @@ func rewriteBySuffix(p string) string {
 		return "/"
 	}
 
-	// If a reverse proxy forwards a path prefix (e.g. /xxx/yyy), treat it as the UI base.
-	// This keeps the app working even when the proxy doesn't strip the prefix.
 	if !strings.Contains(path.Base(p), ".") {
 		return "/"
 	}
@@ -189,8 +185,6 @@ func pathRewriteMiddleware(next http.Handler) http.Handler {
 		}
 
 		if fwd := r.Header.Get("X-Forwarded-Prefix"); newPath == origPath && fwd != "" {
-			// Some proxies set X-Forwarded-Prefix to indicate the mount path.
-			// Use the first value if multiple are provided.
 			if i := strings.IndexByte(fwd, ','); i >= 0 {
 				fwd = fwd[:i]
 			}
@@ -228,6 +222,7 @@ type wsWriter struct {
 	conn *websocket.Conn
 	mu   *sync.Mutex
 }
+
 func (w *wsWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -262,42 +257,36 @@ func readWebSocketInput(conn *websocket.Conn, stdin io.Writer, session *ssh.Sess
 	}
 }
 
-func createSession(creds SSHCredentials) (*Session, error) {
-	config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
-	if err != nil {
-		return nil, err
+func userHomeRoot(username string) string {
+	u := strings.TrimSpace(username)
+	if u == "" || u == "root" {
+		return "/"
 	}
+	return "/home/" + u
+}
 
-	addr := fmt.Sprintf("%s:%d", creds.Host, creds.Port)
-	client, err := ssh.Dial("tcp", addr, config)
-	if err != nil {
-		return nil, err
+func normalizePathWithinHome(session *Session, requestedPath string) (string, error) {
+	if session == nil {
+		return "", fmt.Errorf("session expired")
 	}
-
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		client.Close()
-		return nil, err
+	home := path.Clean(session.HomeRoot)
+	p := strings.TrimSpace(requestedPath)
+	if p == "" || p == "." {
+		return home, nil
 	}
-
-	sessionID := uuid.New().String()
-	session := &Session{
-		ID:         sessionID,
-		SSHClient:  client,
-		SFTPClient: sftpClient,
-		LastAccess: time.Now(),
+	if !strings.HasPrefix(p, "/") {
+		p = path.Join(home, p)
 	}
-
-	sessionMutex.Lock()
-	sessionStore[sessionID] = session
-	sessionMutex.Unlock()
-
-	return session, nil
+	p = path.Clean(p)
+	if p == home || strings.HasPrefix(p, home+"/") || home == "/" {
+		return p, nil
+	}
+	return "", fmt.Errorf("path is outside home directory")
 }
 
 func getSession(id string) *Session {
-	sessionMutex.Lock()
-	defer sessionMutex.Unlock()
+	sessionMutex.RLock()
+	defer sessionMutex.RUnlock()
 	if s, ok := sessionStore[id]; ok {
 		s.LastAccess = time.Now()
 		return s
@@ -351,16 +340,46 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := createSession(creds)
+	config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
 	if err != nil {
-		log.Printf("Login failed for user %s to %s:%d: %v", creds.Username, creds.Host, creds.Port, err)
-		http.Error(w, "SSH Error: "+err.Error(), 401)
+		http.Error(w, "Auth config error: "+err.Error(), 400)
 		return
 	}
 
-	log.Printf("Login successful for user %s, Session ID: %s", creds.Username, session.ID)
+	addr := fmt.Sprintf("%s:%d", creds.Host, creds.Port)
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		http.Error(w, "Login failed: "+err.Error(), 401)
+		return
+	}
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		client.Close()
+		http.Error(w, "SFTP error: "+err.Error(), 500)
+		return
+	}
+
+	sessionID := uuid.New().String()
+	session := &Session{
+		ID:         sessionID,
+		SSHClient:  client,
+		SFTPClient: sftpClient,
+		Username:   creds.Username,
+		HomeRoot:   userHomeRoot(creds.Username),
+		LastAccess: time.Now(),
+	}
+
+	sessionMutex.Lock()
+	sessionStore[sessionID] = session
+	sessionMutex.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"sid": session.ID})
+	json.NewEncoder(w).Encode(map[string]string{
+		"sid":       sessionID,
+		"user":      session.Username,
+		"home_root": session.HomeRoot,
+	})
 }
 
 func main() {
@@ -402,11 +421,13 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Path == "" {
-		req.Path = "."
+	normalizedPath, normErr := normalizePathWithinHome(session, req.Path)
+	if normErr != nil {
+		http.Error(w, normErr.Error(), http.StatusForbidden)
+		return
 	}
 
-	files, err := session.SFTPClient.ReadDir(req.Path)
+	files, err := session.SFTPClient.ReadDir(normalizedPath)
 	if err != nil {
 		http.Error(w, "ReadDir error: "+err.Error(), 500)
 		return
@@ -430,6 +451,7 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 func handleSFTPRaw(w http.ResponseWriter, r *http.Request) {
 	sid := r.URL.Query().Get("sid")
 	filePath := r.URL.Query().Get("path")
+	fileName := r.URL.Query().Get("name")
 
 	session := getSession(sid)
 	if session == nil {
@@ -437,14 +459,21 @@ func handleSFTPRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	src, err := session.SFTPClient.Open(filePath)
+	normalizedPath, normErr := normalizePathWithinHome(session, filePath)
+	if normErr != nil {
+		http.Error(w, normErr.Error(), http.StatusForbidden)
+		return
+	}
+
+	src, err := session.SFTPClient.Open(normalizedPath)
 	if err != nil {
 		http.Error(w, "Open error: "+err.Error(), 500)
 		return
 	}
 	defer src.Close()
 
-	ext := path.Ext(filePath)
+	ext := strings.ToLower(path.Ext(normalizedPath))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	switch ext {
 	case ".jpg", ".jpeg":
 		w.Header().Set("Content-Type", "image/jpeg")
@@ -462,31 +491,40 @@ func handleSFTPRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")
 	}
 
+	if fileName != "" {
+		w.Header().Set("Content-Disposition", "inline; filename*=UTF-8''"+url.PathEscape(fileName))
+	} else {
+		w.Header().Set("Content-Disposition", "inline; filename*=UTF-8''"+url.PathEscape(path.Base(normalizedPath)))
+	}
+
+	if w.Header().Get("Content-Type") == "" {
+		guessed := mime.TypeByExtension(ext)
+		if guessed == "" {
+			guessed = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", guessed)
+	}
+
 	io.Copy(w, src)
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	sid := r.URL.Query().Get("sid")
-	log.Printf("WS Connection Attempt: sid=%s from %s", sid, r.RemoteAddr)
-	
 	session := getSession(sid)
 	if session == nil {
-		log.Printf("WS Error: Invalid or expired session ID: %s", sid)
-		http.Error(w, "Invalid session", 401)
+		http.Error(w, "Session expired", 401)
 		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WS Upgrade Error from %s: %v", r.RemoteAddr, err)
+		log.Println("Upgrade error:", err)
 		return
 	}
 	defer conn.Close()
-	log.Printf("WS Upgraded successfully: sid=%s", sid)
 
 	sshSession, err := session.SSHClient.NewSession()
 	if err != nil {
-		log.Printf("SSH session creation failed: %v", err)
 		return
 	}
 	defer sshSession.Close()
@@ -548,7 +586,13 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Path is required", 400)
 		return
 	}
-	targetDir := path.Dir(targetPath)
+	normalizedPath, normErr := normalizePathWithinHome(session, targetPath)
+	if normErr != nil {
+		http.Error(w, normErr.Error(), http.StatusForbidden)
+		return
+	}
+
+	targetDir := path.Dir(normalizedPath)
 	if targetDir != "." && targetDir != "/" {
 		if err := session.SFTPClient.MkdirAll(targetDir); err != nil {
 			http.Error(w, "Mkdir error: "+err.Error(), 500)
@@ -556,7 +600,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	dst, err := session.SFTPClient.Create(targetPath)
+	dst, err := session.SFTPClient.Create(normalizedPath)
 	if err != nil {
 		http.Error(w, "Create error: "+err.Error(), 500)
 		return
@@ -564,16 +608,18 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	defer dst.Close()
 
 	io.Copy(dst, file)
-	log.Printf("Uploaded %s to %s", header.Filename, targetPath)
+	log.Printf("Uploaded %s to %s", header.Filename, normalizedPath)
 	fmt.Fprint(w, "Success")
 }
 
 func handleSFTPAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SID     string `json:"sid"`
-		Action  string `json:"action"`
-		Path    string `json:"path"`
-		NewPath string `json:"new_path"`
+		SID       string `json:"sid"`
+		Action    string `json:"action"`
+		Path      string `json:"path"`
+		NewPath   string `json:"new_path"`
+		Content   string `json:"content"`
+		Overwrite bool   `json:"overwrite"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", 400)
@@ -586,14 +632,86 @@ func handleSFTPAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resolvePath := func(input string) (string, bool) {
+		p, err := normalizePathWithinHome(session, input)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return "", false
+		}
+		return p, true
+	}
+
 	var err error
 	switch req.Action {
 	case "delete":
-		err = recursiveDelete(session.SFTPClient, req.Path)
+		p, ok := resolvePath(req.Path)
+		if !ok {
+			return
+		}
+		if p == path.Clean(session.HomeRoot) && p != "/" {
+			http.Error(w, "Refuse to delete home root", http.StatusForbidden)
+			return
+		}
+		err = recursiveDelete(session.SFTPClient, p)
 	case "rename":
-		err = session.SFTPClient.Rename(req.Path, req.NewPath)
+		srcPath, ok := resolvePath(req.Path)
+		if !ok {
+			return
+		}
+		dstPath, ok := resolvePath(req.NewPath)
+		if !ok {
+			return
+		}
+		err = session.SFTPClient.Rename(srcPath, dstPath)
 	case "mkdir":
-		err = session.SFTPClient.MkdirAll(req.Path)
+		p, ok := resolvePath(req.Path)
+		if !ok {
+			return
+		}
+		err = session.SFTPClient.MkdirAll(p)
+	case "read_text":
+		p, ok := resolvePath(req.Path)
+		if !ok {
+			return
+		}
+		f, openErr := session.SFTPClient.Open(p)
+		if openErr != nil {
+			http.Error(w, openErr.Error(), 500)
+			return
+		}
+		defer f.Close()
+		b, readErr := io.ReadAll(f)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"content": string(b),
+		})
+		return
+	case "write_text":
+		p, ok := resolvePath(req.Path)
+		if !ok {
+			return
+		}
+		if !req.Overwrite {
+			if _, statErr := session.SFTPClient.Stat(p); statErr == nil {
+				http.Error(w, "File exists", http.StatusConflict)
+				return
+			}
+		}
+		f, openErr := session.SFTPClient.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+		if openErr != nil {
+			http.Error(w, openErr.Error(), 500)
+			return
+		}
+		if _, writeErr := f.Write([]byte(req.Content)); writeErr != nil {
+			_ = f.Close()
+			http.Error(w, writeErr.Error(), 500)
+			return
+		}
+		f.Close()
 	default:
 		http.Error(w, "Unknown action", 400)
 		return
@@ -612,16 +730,13 @@ func recursiveDelete(c *sftp.Client, remotePath string) error {
 	if err != nil {
 		return err
 	}
-
 	if !info.IsDir() {
 		return c.Remove(remotePath)
 	}
-
 	files, err := c.ReadDir(remotePath)
 	if err != nil {
 		return err
 	}
-
 	for _, f := range files {
 		subPath := path.Join(remotePath, f.Name())
 		err = recursiveDelete(c, subPath)
@@ -629,6 +744,5 @@ func recursiveDelete(c *sftp.Client, remotePath string) error {
 			return err
 		}
 	}
-
 	return c.RemoveDirectory(remotePath)
 }
