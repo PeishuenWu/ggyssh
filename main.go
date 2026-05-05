@@ -547,13 +547,26 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		readWebSocketInput(conn, stdin, sshSession)
 	}()
 	go func() { defer wg.Done(); io.Copy(wsOut, stdout) }()
 	go func() { defer wg.Done(); io.Copy(wsOut, stderr) }()
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			wsOut.mu.Lock()
+			err := conn.WriteMessage(websocket.PingMessage, []byte{})
+			wsOut.mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
 	wg.Wait()
 }
 
