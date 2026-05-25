@@ -152,6 +152,7 @@ func rewriteBySuffix(p string) string {
 		"/sftp/list",
 		"/upload",
 		"/ws",
+		"/login/sso",
 		"/login",
 		"/auth/status",
 		"/auth/login/begin",
