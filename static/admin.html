@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GgySSH Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background: #111318; color: #e6edf3; }
+        .topbar { height: 44px; border-bottom: 1px solid #30363d; background: #161b22; display: flex; align-items: center; padding: 0 16px; }
+        .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        .panel { border: 1px solid #30363d; border-radius: 6px; background: #161b22; }
+        .panel-h { padding: 12px 14px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .panel-b { padding: 14px; }
+        .form-control { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+        .form-control:focus { background: #0d1117; border-color: #2f81f7; color: #fff; box-shadow: none; }
+        .table { --bs-table-bg: transparent; --bs-table-color: #e6edf3; --bs-table-border-color: #30363d; }
+        .muted { color: #8b949e; }
+        code { color: #a5d6ff; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <strong class="me-auto">GgySSH Admin</strong>
+        <a class="btn btn-sm btn-outline-secondary" href="/"><i class="bi bi-terminal me-1"></i>SSH</a>
+    </div>
+    <div class="wrap">
+        <div id="notice" class="alert alert-secondary py-2 hidden"></div>
+
+        <div id="auth-panel" class="panel mb-3">
+            <div class="panel-h">
+                <strong>Admin Authentication</strong>
+                <span id="auth-state" class="muted small"></span>
+            </div>
+            <div class="panel-b">
+                <button class="btn btn-primary me-2" onclick="loginSecurityKey()"><i class="bi bi-key-fill me-1"></i>Use Security Key</button>
+                <button class="btn btn-outline-success" onclick="registerSecurityKey()"><i class="bi bi-plus-lg me-1"></i>Register Security Key</button>
+                <input id="new-key-name" class="form-control mt-3" placeholder="Security key name, e.g. YubiKey 5C NFC">
+                <div class="small muted mt-2">First key registration is available only after the admin/bootstrap token gate succeeds and no key exists yet.</div>
+            </div>
+        </div>
+
+        <div class="panel mb-3">
+            <div class="panel-h">
+                <strong>Security Keys</strong>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadKeys()"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+            <div class="panel-b table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Name</th><th>Credential ID</th><th>Created</th><th>Last Used</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="keys-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-h">
+                <strong>Login Records</strong>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadAudit()"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+            <div class="panel-b table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Time</th><th>Event</th><th>Result</th><th>IP</th><th>Detail</th></tr></thead>
+                    <tbody id="audit-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script>
+        function b64urlToBuffer(value) {
+            const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return bytes.buffer;
+        }
+        function bufferToB64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            bytes.forEach(b => binary += String.fromCharCode(b));
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        }
+        function prepareCreationOptions(options) {
+            const publicKey = options.publicKey || options.response?.publicKey || options;
+            publicKey.challenge = b64urlToBuffer(publicKey.challenge);
+            publicKey.user.id = b64urlToBuffer(publicKey.user.id);
+            if (publicKey.excludeCredentials) publicKey.excludeCredentials = publicKey.excludeCredentials.map(c => ({ ...c, id: b64urlToBuffer(c.id) }));
+            return publicKey;
+        }
+        function prepareRequestOptions(options) {
+            const publicKey = options.publicKey || options.response?.publicKey || options;
+            publicKey.challenge = b64urlToBuffer(publicKey.challenge);
+            if (publicKey.allowCredentials) publicKey.allowCredentials = publicKey.allowCredentials.map(c => ({ ...c, id: b64urlToBuffer(c.id) }));
+            return publicKey;
+        }
+        function credentialToJSON(credential, sessionId, extra = {}) {
+            const r = credential.response;
+            const out = { session_id: sessionId, id: credential.id, rawId: bufferToB64url(credential.rawId), type: credential.type, response: { clientDataJSON: bufferToB64url(r.clientDataJSON) }, ...extra };
+            if (r.attestationObject) out.response.attestationObject = bufferToB64url(r.attestationObject);
+            if (r.authenticatorData) out.response.authenticatorData = bufferToB64url(r.authenticatorData);
+            if (r.signature) out.response.signature = bufferToB64url(r.signature);
+            if (r.userHandle) out.response.userHandle = bufferToB64url(r.userHandle);
+            return out;
+        }
+        function notice(msg, danger = false) {
+            const el = document.getElementById('notice');
+            el.textContent = msg;
+            el.className = `alert py-2 ${danger ? 'alert-danger' : 'alert-secondary'}`;
+        }
+        async function refreshStatus() {
+            const res = await fetch('/auth/status', { credentials: 'same-origin' });
+            const data = await res.json();
+            document.getElementById('auth-state').textContent = data.authenticated ? `Signed in as ${data.user}` : (data.bootstrap_available ? 'Bootstrap mode' : 'Not signed in');
+            if (data.authenticated) {
+                await loadKeys();
+                await loadAudit();
+            }
+        }
+        async function loginSecurityKey() {
+            try {
+                notice('Waiting for security key...');
+                const begin = await fetch('/auth/login/begin', { method: 'POST', credentials: 'same-origin' });
+                if (!begin.ok) throw new Error(await begin.text());
+                const data = await begin.json();
+                const credential = await navigator.credentials.get({ publicKey: prepareRequestOptions(data.options) });
+                const finish = await fetch('/auth/login/finish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(credentialToJSON(credential, data.session_id)) });
+                if (!finish.ok) throw new Error(await finish.text());
+                notice('Admin session established.');
+                await refreshStatus();
+            } catch (e) {
+                notice(e.message || 'Login failed.', true);
+            }
+        }
+        async function registerSecurityKey() {
+            try {
+                notice('Waiting for new security key...');
+                const name = document.getElementById('new-key-name').value.trim() || 'Security Key';
+                const begin = await fetch('/auth/register/begin', { method: 'POST', credentials: 'same-origin' });
+                if (!begin.ok) throw new Error(await begin.text());
+                const data = await begin.json();
+                const credential = await navigator.credentials.create({ publicKey: prepareCreationOptions(data.options) });
+                const finish = await fetch('/auth/register/finish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(credentialToJSON(credential, data.session_id, { name })) });
+                if (!finish.ok) throw new Error(await finish.text());
+                notice('Security key registered.');
+                await refreshStatus();
+            } catch (e) {
+                notice(e.message || 'Registration failed.', true);
+            }
+        }
+        async function loadKeys() {
+            const res = await fetch('/admin/api/keys', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const keys = await res.json();
+            document.getElementById('keys-body').innerHTML = (keys || []).map(k => `
+                <tr>
+                    <td><input class="form-control form-control-sm" value="${escapeHtml(k.name)}" onchange="renameKey(${k.id}, this.value)"></td>
+                    <td><code>${escapeHtml((k.credential_id || '').slice(0, 18))}...</code></td>
+                    <td>${escapeHtml(k.created_at || '')}</td>
+                    <td>${escapeHtml(k.last_used_at || '')}</td>
+                    <td>${k.active ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Disabled</span>'}</td>
+                    <td><button class="btn btn-sm btn-outline-warning" onclick="keyAction(${k.id}, '${k.active ? 'disable' : 'enable'}')">${k.active ? 'Disable' : 'Enable'}</button></td>
+                </tr>`).join('');
+        }
+        async function renameKey(id, name) {
+            await fetch('/admin/api/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, name, action: 'rename' }) });
+        }
+        async function keyAction(id, action) {
+            await fetch('/admin/api/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, action }) });
+            await loadKeys();
+        }
+        async function loadAudit() {
+            const res = await fetch('/admin/api/audit', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const logs = await res.json();
+            document.getElementById('audit-body').innerHTML = (logs || []).map(l => `
+                <tr>
+                    <td>${escapeHtml(l.created_at || '')}</td>
+                    <td><code>${escapeHtml(l.event_type || '')}</code></td>
+                    <td>${l.success ? '<span class="badge text-bg-success">OK</span>' : '<span class="badge text-bg-danger">Fail</span>'}</td>
+                    <td>${escapeHtml(l.ip || '')}</td>
+                    <td class="small">${escapeHtml(l.detail || '')}</td>
+                </tr>`).join('');
+        }
+        function escapeHtml(s) {
+            return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        refreshStatus().catch(e => notice(e.message, true));
+    </script>
+</body>
+</html>

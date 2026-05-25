@@ -26,10 +26,12 @@ type HostConfig struct {
 }
 
 type Config struct {
-	ServerPort           string       `json:"server_port"`
-	Hosts                []HostConfig `json:"hosts"`
-	BasePath             string       `json:"base_path,omitempty"`
-	DisablePasswordLogin bool         `json:"disable_password_login,omitempty"`
+	ServerPort           string         `json:"server_port"`
+	Hosts                []HostConfig   `json:"hosts"`
+	BasePath             string         `json:"base_path,omitempty"`
+	DisablePasswordLogin bool           `json:"disable_password_login,omitempty"`
+	WebAuthn             WebAuthnConfig `json:"webauthn,omitempty"`
+	Admin                AdminConfig    `json:"admin,omitempty"`
 }
 
 var globalConfig Config
@@ -150,6 +152,16 @@ func rewriteBySuffix(p string) string {
 		"/upload",
 		"/ws",
 		"/login",
+		"/auth/status",
+		"/auth/login/begin",
+		"/auth/login/finish",
+		"/auth/register/begin",
+		"/auth/register/finish",
+		"/auth/logout",
+		"/admin/api/keys",
+		"/admin/api/key",
+		"/admin/api/audit",
+		"/admin",
 		"/config",
 	}
 
@@ -342,6 +354,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	config, err := getSSHConfig(creds.Username, creds.AuthType, creds.Password, creds.Key)
 	if err != nil {
+		audit(r, "", "ssh_login_config_failed", false, err.Error())
 		http.Error(w, "Auth config error: "+err.Error(), 400)
 		return
 	}
@@ -349,6 +362,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	addr := fmt.Sprintf("%s:%d", creds.Host, creds.Port)
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
+		audit(r, "", "ssh_login_failed", false, err.Error())
 		http.Error(w, "Login failed: "+err.Error(), 401)
 		return
 	}
@@ -373,6 +387,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	sessionMutex.Lock()
 	sessionStore[sessionID] = session
 	sessionMutex.Unlock()
+	audit(r, "", "ssh_login_success", true, creds.Username+"@"+addr)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
@@ -384,17 +399,52 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	loadConfig()
+	if globalConfig.WebAuthn.Enabled {
+		if globalConfig.Admin.Path == "" {
+			globalConfig.Admin.Path = "/admin"
+		}
+		if globalConfig.Admin.Enabled == false {
+			globalConfig.Admin.Enabled = true
+		}
+		if globalConfig.WebAuthn.AdminUser == "" {
+			globalConfig.WebAuthn.AdminUser = "admin"
+		}
+		initAuth()
+	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/login", handleLogin)
-	mux.HandleFunc("/ws", handleWebSocket)
-	mux.HandleFunc("/upload", handleUpload)
-	mux.HandleFunc("/sftp/list", handleSFTPList)
-	mux.HandleFunc("/sftp/action", handleSFTPAction)
-	mux.HandleFunc("/sftp/raw", handleSFTPRaw)
+	mux.HandleFunc("/auth/status", handleAuthStatus)
+	mux.HandleFunc("/auth/login/begin", handleAuthLoginBegin)
+	mux.HandleFunc("/auth/login/finish", handleAuthLoginFinish)
+	mux.HandleFunc("/auth/register/begin", handleAuthRegisterBegin)
+	mux.HandleFunc("/auth/register/finish", handleAuthRegisterFinish)
+	mux.HandleFunc("/auth/logout", handleAuthLogout)
+	mux.Handle("/admin/api/keys", requireAdmin(http.HandlerFunc(handleAdminKeys)))
+	mux.Handle("/admin/api/key", requireAdmin(http.HandlerFunc(handleAdminKeyAction)))
+	mux.Handle("/admin/api/audit", requireAdmin(http.HandlerFunc(handleAdminAudit)))
+	mux.HandleFunc("/admin/", handleAdminGate)
+	mux.HandleFunc("/admin", handleAdminGate)
+	mux.Handle("/login", requireWebAuth(http.HandlerFunc(handleLogin)))
+	mux.Handle("/ws", requireWebAuth(http.HandlerFunc(handleWebSocket)))
+	mux.Handle("/upload", requireWebAuth(http.HandlerFunc(handleUpload)))
+	mux.Handle("/sftp/list", requireWebAuth(http.HandlerFunc(handleSFTPList)))
+	mux.Handle("/sftp/action", requireWebAuth(http.HandlerFunc(handleSFTPAction)))
+	mux.Handle("/sftp/raw", requireWebAuth(http.HandlerFunc(handleSFTPRaw)))
 	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(globalConfig)
+		json.NewEncoder(w).Encode(map[string]any{
+			"server_port":            globalConfig.ServerPort,
+			"hosts":                  globalConfig.Hosts,
+			"base_path":              globalConfig.BasePath,
+			"disable_password_login": globalConfig.DisablePasswordLogin,
+			"webauthn": map[string]any{
+				"enabled": globalConfig.WebAuthn.Enabled,
+			},
+			"admin": map[string]any{
+				"enabled": globalConfig.Admin.Enabled,
+				"path":    globalConfig.Admin.Path,
+			},
+		})
 	})
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
 

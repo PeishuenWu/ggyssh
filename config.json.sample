@@ -11,5 +11,21 @@
       "host": "192.168.1.2",
       "port": 22
     }
-  ]
+  ],
+  "webauthn": {
+    "enabled": false,
+    "rp_id": "localhost",
+    "rp_display_name": "GgySSH",
+    "origin": "http://localhost:8080",
+    "admin_user": "admin",
+    "db_path": "ggyssh.sqlite",
+    "session_hours": 24
+  },
+  "admin": {
+    "enabled": true,
+    "path": "/admin",
+    "token_required": true,
+    "token_hash": "sha256:<hex-encoded-sha256>",
+    "bootstrap_token_hash": "sha256:<hex-encoded-sha256>"
+  }
 }

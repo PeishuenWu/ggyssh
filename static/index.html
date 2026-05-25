@@ -29,6 +29,7 @@
         }
         #login-card .form-label { margin-bottom: 0.25rem; }
         #login-card .mb-3 { margin-bottom: 1rem !important; }
+        #auth-gate-status { min-height: 1.2rem; }
         
         /* Main Layout (hidden until login) */
         #main-container { height: calc(100vh - var(--bottom-bar-h)); min-height: 0; flex: none; display: flex; overflow: hidden; position: relative; background: #000; }
@@ -236,7 +237,21 @@
     <div id="login-overlay">
         <div id="login-card">
             <h4 class="text-center mb-4 text-primary"><i class="bi bi-shield-lock-fill me-2"></i>GgySSH Login</h4>
-            
+
+            <div id="auth-gate" class="hidden">
+                <div class="text-center mb-3">
+                    <div class="text-secondary small mb-3">Security key verification is required before SSH access.</div>
+                    <button class="btn btn-primary w-100 py-2 mb-2" onclick="webauthnLogin()">
+                        <i class="bi bi-key-fill me-2"></i>Use Security Key
+                    </button>
+                    <a class="btn btn-outline-secondary w-100 py-2" href="/admin/">
+                        <i class="bi bi-sliders me-2"></i>Admin
+                    </a>
+                    <div id="auth-gate-status" class="small text-secondary mt-3"></div>
+                </div>
+            </div>
+
+            <div id="ssh-login-form">
             <div class="mb-3">
                 <label class="form-label small text-secondary">SSH Host</label>
                 <select id="host-select" class="form-select"></select>
@@ -273,6 +288,7 @@
             <button class="btn btn-primary w-100 py-2" onclick="connect()">
                 <i class="bi bi-plug-fill me-2"></i>Connect
             </button>
+            </div>
         </div>
     </div>
 
@@ -395,6 +411,115 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        let webauthnEnabled = false;
+
+        function b64urlToBuffer(value) {
+            if (!value) return new ArrayBuffer(0);
+            const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return bytes.buffer;
+        }
+
+        function bufferToB64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            bytes.forEach(b => binary += String.fromCharCode(b));
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        }
+
+        function publicKeyCredentialToJSON(credential, sessionId, extra = {}) {
+            const response = credential.response;
+            const payload = {
+                session_id: sessionId,
+                id: credential.id,
+                rawId: bufferToB64url(credential.rawId),
+                type: credential.type,
+                response: {
+                    clientDataJSON: bufferToB64url(response.clientDataJSON)
+                },
+                ...extra
+            };
+            if (response.attestationObject) payload.response.attestationObject = bufferToB64url(response.attestationObject);
+            if (response.authenticatorData) payload.response.authenticatorData = bufferToB64url(response.authenticatorData);
+            if (response.signature) payload.response.signature = bufferToB64url(response.signature);
+            if (response.userHandle) payload.response.userHandle = bufferToB64url(response.userHandle);
+            return payload;
+        }
+
+        function prepareCreationOptions(options) {
+            const publicKey = options.publicKey || options.response?.publicKey || options;
+            publicKey.challenge = b64urlToBuffer(publicKey.challenge);
+            publicKey.user.id = b64urlToBuffer(publicKey.user.id);
+            if (publicKey.excludeCredentials) {
+                publicKey.excludeCredentials = publicKey.excludeCredentials.map(c => ({ ...c, id: b64urlToBuffer(c.id) }));
+            }
+            return publicKey;
+        }
+
+        function prepareRequestOptions(options) {
+            const publicKey = options.publicKey || options.response?.publicKey || options;
+            publicKey.challenge = b64urlToBuffer(publicKey.challenge);
+            if (publicKey.allowCredentials) {
+                publicKey.allowCredentials = publicKey.allowCredentials.map(c => ({ ...c, id: b64urlToBuffer(c.id) }));
+            }
+            return publicKey;
+        }
+
+        function setAuthGateStatus(message, isError = false) {
+            const status = document.getElementById('auth-gate-status');
+            if (!status) return;
+            status.textContent = message || '';
+            status.classList.toggle('text-danger', isError);
+            status.classList.toggle('text-secondary', !isError);
+        }
+
+        async function refreshAuthGate() {
+            try {
+                const res = await fetch('/auth/status', { credentials: 'same-origin' });
+                const data = await res.json();
+                webauthnEnabled = !!data.enabled;
+                const gate = document.getElementById('auth-gate');
+                const form = document.getElementById('ssh-login-form');
+                if (!webauthnEnabled || data.authenticated) {
+                    gate.classList.add('hidden');
+                    form.classList.remove('hidden');
+                } else {
+                    gate.classList.remove('hidden');
+                    form.classList.add('hidden');
+                    setAuthGateStatus(data.bootstrap_available ? 'Open Admin to register the first security key.' : '');
+                }
+            } catch (e) {
+                console.error('Auth status failed', e);
+            }
+        }
+
+        async function webauthnLogin() {
+            if (!window.PublicKeyCredential) {
+                setAuthGateStatus('This browser does not support WebAuthn.', true);
+                return;
+            }
+            try {
+                setAuthGateStatus('Waiting for security key...');
+                const begin = await fetch('/auth/login/begin', { method: 'POST', credentials: 'same-origin' });
+                if (!begin.ok) throw new Error(await begin.text());
+                const data = await begin.json();
+                const credential = await navigator.credentials.get({ publicKey: prepareRequestOptions(data.options) });
+                const finish = await fetch('/auth/login/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(publicKeyCredentialToJSON(credential, data.session_id))
+                });
+                if (!finish.ok) throw new Error(await finish.text());
+                setAuthGateStatus('');
+                await refreshAuthGate();
+            } catch (e) {
+                setAuthGateStatus(e.message || 'Security key login failed.', true);
+            }
+        }
+
         function toggleAuth() {
             const type = document.getElementById('auth_type').value;
             document.getElementById('password-input').classList.toggle('hidden', type === 'key');
@@ -1965,6 +2090,7 @@
         });
 
         updateBottomBarHeight();
+        refreshAuthGate();
         fetch('config').then(r => r.json()).then(data => {
             const hostSelect = document.getElementById('host-select');
             if (data.hosts && data.hosts.length > 0) {
