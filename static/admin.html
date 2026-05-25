@@ -16,6 +16,7 @@
         .table { --bs-table-bg: transparent; --bs-table-color: #e6edf3; --bs-table-border-color: #30363d; }
         .muted { color: #8b949e; }
         code { color: #a5d6ff; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -32,14 +33,18 @@
                 <span id="auth-state" class="muted small"></span>
             </div>
             <div class="panel-b">
-                <button class="btn btn-primary me-2" onclick="loginSecurityKey()"><i class="bi bi-key-fill me-1"></i>Use Security Key</button>
-                <button class="btn btn-outline-success" onclick="registerSecurityKey()"><i class="bi bi-plus-lg me-1"></i>Register Security Key</button>
-                <input id="new-key-name" class="form-control mt-3" placeholder="Security key name, e.g. YubiKey 5C NFC">
-                <div class="small muted mt-2">First key registration is available only after the admin/bootstrap token gate succeeds and no key exists yet.</div>
+                <div id="locked-copy" class="mb-3">
+                    <div class="fw-semibold mb-1">Admin is locked</div>
+                    <div class="small muted">Use an admin security key to unlock management. First-time setup requires opening this page with the bootstrap token.</div>
+                </div>
+                <button id="btn-login-key" class="btn btn-primary me-2" onclick="loginSecurityKey()"><i class="bi bi-key-fill me-1"></i>Use Security Key</button>
+                <button id="btn-register-key" class="btn btn-outline-success" onclick="registerSecurityKey()"><i class="bi bi-plus-lg me-1"></i>Register Security Key</button>
+                <input id="new-key-name" class="form-control mt-3 hidden" placeholder="Security key name, e.g. YubiKey 5C NFC">
+                <div id="register-help" class="small muted mt-2 hidden">First key registration is available only after the admin/bootstrap token gate succeeds and no key exists yet. Additional keys require an unlocked admin session.</div>
             </div>
         </div>
 
-        <div class="panel mb-3">
+        <div id="keys-panel" class="panel mb-3 hidden">
             <div class="panel-h">
                 <strong>Security Keys</strong>
                 <button class="btn btn-sm btn-outline-secondary" onclick="loadKeys()"><i class="bi bi-arrow-clockwise"></i></button>
@@ -52,7 +57,7 @@
             </div>
         </div>
 
-        <div class="panel">
+        <div id="audit-panel" class="panel hidden">
             <div class="panel-h">
                 <strong>Login Records</strong>
                 <button class="btn btn-sm btn-outline-secondary" onclick="loadAudit()"><i class="bi bi-arrow-clockwise"></i></button>
@@ -109,8 +114,24 @@
         async function refreshStatus() {
             const res = await fetch('/auth/status', { credentials: 'same-origin' });
             const data = await res.json();
-            document.getElementById('auth-state').textContent = data.authenticated ? `Signed in as ${data.user}` : (data.bootstrap_available ? 'Bootstrap mode' : 'Not signed in');
+            const authenticated = !!data.authenticated;
+            const bootstrap = !!data.bootstrap_available;
+            const adminGate = !!data.admin_gate;
+            document.getElementById('auth-state').textContent = authenticated ? `Signed in as ${data.user}` : (bootstrap ? 'Bootstrap mode' : 'Locked');
+            document.getElementById('locked-copy').classList.toggle('hidden', authenticated);
+            document.getElementById('btn-login-key').classList.toggle('hidden', authenticated || bootstrap);
+            document.getElementById('btn-register-key').classList.toggle('hidden', authenticated ? false : !bootstrap);
+            document.getElementById('new-key-name').classList.toggle('hidden', !(authenticated || bootstrap));
+            document.getElementById('register-help').classList.toggle('hidden', !(authenticated || bootstrap));
+            document.getElementById('keys-panel').classList.toggle('hidden', !authenticated);
+            document.getElementById('audit-panel').classList.toggle('hidden', !authenticated);
+            if (!authenticated && !bootstrap && !adminGate) {
+                notice('Open /admin/?token=... to pass the admin token gate, then use a registered security key.', true);
+            } else if (!authenticated && !bootstrap) {
+                notice('Use a registered admin security key to unlock management.');
+            }
             if (data.authenticated) {
+                notice('Admin management is unlocked.');
                 await loadKeys();
                 await loadAudit();
             }
