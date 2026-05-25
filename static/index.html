@@ -415,6 +415,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let webauthnEnabled = false;
+        let ssoEnabled = false;
 
         function b64urlToBuffer(value) {
             if (!value) return new ArrayBuffer(0);
@@ -483,6 +484,7 @@
                 const res = await fetch('/auth/status', { credentials: 'same-origin' });
                 const data = await res.json();
                 webauthnEnabled = !!data.enabled;
+                ssoEnabled = !!data.sso_enabled;
                 const gate = document.getElementById('auth-gate');
                 const form = document.getElementById('ssh-login-form');
                 if (!webauthnEnabled || data.authenticated) {
@@ -516,10 +518,36 @@
                     body: JSON.stringify(publicKeyCredentialToJSON(credential, data.session_id))
                 });
                 if (!finish.ok) throw new Error(await finish.text());
+                if (ssoEnabled) {
+                    setAuthGateStatus('Security key accepted. Opening SSH session...');
+                    const ok = await trySSOLogin();
+                    if (ok) return;
+                }
                 setAuthGateStatus('');
                 await refreshAuthGate();
             } catch (e) {
                 setAuthGateStatus(e.message || 'Security key login failed.', true);
+            }
+        }
+
+        async function trySSOLogin() {
+            try {
+                const resp = await fetch('login/sso', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: '{}'
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                sid = data.sid;
+                homeRoot = normalizePath(data.home_root || `/home/${data.user || 'codex'}`);
+                afterLogin(homeRoot, homeRoot);
+                return true;
+            } catch (e) {
+                setAuthGateStatus(`SSO failed: ${e.message}. Use manual SSH login.`, true);
+                await refreshAuthGate();
+                return false;
             }
         }
 

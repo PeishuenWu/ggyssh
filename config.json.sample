@@ -27,5 +27,13 @@
     "token_required": true,
     "token_hash": "sha256:<hex-encoded-sha256>",
     "bootstrap_token_hash": "sha256:<hex-encoded-sha256>"
+  },
+  "sso": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 22,
+    "username": "codex",
+    "private_key_path": "/home/codex/.ssh/ggyssh_sso_key",
+    "home_root": "/home/codex"
   }
 }

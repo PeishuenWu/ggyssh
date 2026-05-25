@@ -32,6 +32,7 @@ type Config struct {
 	DisablePasswordLogin bool           `json:"disable_password_login,omitempty"`
 	WebAuthn             WebAuthnConfig `json:"webauthn,omitempty"`
 	Admin                AdminConfig    `json:"admin,omitempty"`
+	SSO                  SSOConfig      `json:"sso,omitempty"`
 }
 
 var globalConfig Config
@@ -340,6 +341,55 @@ type SSHCredentials struct {
 	Key      string `json:"key"`
 }
 
+type SSOConfig struct {
+	Enabled        bool   `json:"enabled,omitempty"`
+	Host           string `json:"host,omitempty"`
+	Port           int    `json:"port,omitempty"`
+	Username       string `json:"username,omitempty"`
+	PrivateKeyPath string `json:"private_key_path,omitempty"`
+	Passphrase     string `json:"passphrase,omitempty"`
+	HomeRoot       string `json:"home_root,omitempty"`
+}
+
+func createSSHSession(username, host string, port int, config *ssh.ClientConfig) (*Session, error) {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, fmt.Errorf("login failed: %w", err)
+	}
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("SFTP error: %w", err)
+	}
+
+	sessionID := uuid.New().String()
+	session := &Session{
+		ID:         sessionID,
+		SSHClient:  client,
+		SFTPClient: sftpClient,
+		Username:   username,
+		HomeRoot:   userHomeRoot(username),
+		LastAccess: time.Now(),
+	}
+
+	sessionMutex.Lock()
+	sessionStore[sessionID] = session
+	sessionMutex.Unlock()
+
+	return session, nil
+}
+
+func writeLoginResponse(w http.ResponseWriter, session *Session) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"sid":       session.ID,
+		"user":      session.Username,
+		"home_root": session.HomeRoot,
+	})
+}
+
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", 405)
@@ -359,42 +409,62 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addr := fmt.Sprintf("%s:%d", creds.Host, creds.Port)
-	client, err := ssh.Dial("tcp", addr, config)
+	session, err := createSSHSession(creds.Username, creds.Host, creds.Port, config)
 	if err != nil {
 		audit(r, "", "ssh_login_failed", false, err.Error())
-		http.Error(w, "Login failed: "+err.Error(), 401)
+		http.Error(w, err.Error(), 401)
 		return
 	}
+	audit(r, "", "ssh_login_success", true, creds.Username+"@"+fmt.Sprintf("%s:%d", creds.Host, creds.Port))
+	writeLoginResponse(w, session)
+}
 
-	sftpClient, err := sftp.NewClient(client)
+func handleSSOLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	cfg := globalConfig.SSO
+	if !cfg.Enabled {
+		http.Error(w, "SSO login is disabled", http.StatusNotFound)
+		return
+	}
+	if cfg.Host == "" {
+		cfg.Host = "127.0.0.1"
+	}
+	if cfg.Port == 0 {
+		cfg.Port = 22
+	}
+	if cfg.Username == "" {
+		cfg.Username = "codex"
+	}
+	if cfg.PrivateKeyPath == "" {
+		http.Error(w, "SSO private_key_path is required", http.StatusInternalServerError)
+		return
+	}
+	key, err := os.ReadFile(cfg.PrivateKeyPath)
 	if err != nil {
-		client.Close()
-		http.Error(w, "SFTP error: "+err.Error(), 500)
+		audit(r, "", "ssh_sso_key_failed", false, err.Error())
+		http.Error(w, "SSO key read failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	sessionID := uuid.New().String()
-	session := &Session{
-		ID:         sessionID,
-		SSHClient:  client,
-		SFTPClient: sftpClient,
-		Username:   creds.Username,
-		HomeRoot:   userHomeRoot(creds.Username),
-		LastAccess: time.Now(),
+	sshConfig, err := getSSHConfig(cfg.Username, "key", cfg.Passphrase, string(key))
+	if err != nil {
+		audit(r, "", "ssh_sso_config_failed", false, err.Error())
+		http.Error(w, "SSO auth config error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-
-	sessionMutex.Lock()
-	sessionStore[sessionID] = session
-	sessionMutex.Unlock()
-	audit(r, "", "ssh_login_success", true, creds.Username+"@"+addr)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"sid":       sessionID,
-		"user":      session.Username,
-		"home_root": session.HomeRoot,
-	})
+	session, err := createSSHSession(cfg.Username, cfg.Host, cfg.Port, sshConfig)
+	if err != nil {
+		audit(r, "", "ssh_sso_failed", false, err.Error())
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if cfg.HomeRoot != "" {
+		session.HomeRoot = cfg.HomeRoot
+	}
+	audit(r, "", "ssh_sso_success", true, cfg.Username+"@"+fmt.Sprintf("%s:%d", cfg.Host, cfg.Port))
+	writeLoginResponse(w, session)
 }
 
 func main() {
@@ -425,6 +495,7 @@ func main() {
 	mux.HandleFunc("/admin/", handleAdminGate)
 	mux.HandleFunc("/admin", handleAdminGate)
 	mux.Handle("/login", requireWebAuth(http.HandlerFunc(handleLogin)))
+	mux.Handle("/login/sso", requireWebAuth(http.HandlerFunc(handleSSOLogin)))
 	mux.Handle("/ws", requireWebAuth(http.HandlerFunc(handleWebSocket)))
 	mux.Handle("/upload", requireWebAuth(http.HandlerFunc(handleUpload)))
 	mux.Handle("/sftp/list", requireWebAuth(http.HandlerFunc(handleSFTPList)))
@@ -443,6 +514,9 @@ func main() {
 			"admin": map[string]any{
 				"enabled": globalConfig.Admin.Enabled,
 				"path":    globalConfig.Admin.Path,
+			},
+			"sso": map[string]any{
+				"enabled": globalConfig.SSO.Enabled,
 			},
 		})
 	})

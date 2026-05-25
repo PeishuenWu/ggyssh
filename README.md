@@ -81,6 +81,30 @@ printf '%s' 'your-long-random-token' | sha256sum
 
 登入成功、失败、admin token gate、金钥注册、金钥停用等事件会写入 SQLite audit log，并可在 `/admin/` 查看。
 
+### WebAuthn 后自动 SSH SSO
+
+如果 GgySSH 只需要登入固定的受控 SSH 帐号，可以启用 server-side SSO。使用者通过 WebAuthn 后，前端会自动呼叫 `/login/sso`，后端读取服务器上的 SSH private key 建立 SSH/SFTP session；private key 不会传到浏览器。
+
+```json
+{
+  "sso": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 22,
+    "username": "codex",
+    "private_key_path": "/home/codex/.ssh/ggyssh_sso_key",
+    "home_root": "/home/codex"
+  }
+}
+```
+
+建议：
+
+- `private_key_path` 指向只供 GgySSH SSO 使用的 key。
+- private key 权限设为 `600`。
+- public key 放入目标帐号的 `authorized_keys`。
+- SSO 失败时会退回原本的手动 SSH login form。
+
 ## 反向代理（子路径）部署
 
 如果你需要把 GgySSH 挂在某个子路径下（例如 `https://example.com/xxx/`），推荐让反向代理**剥离**路径前缀再转发到后端，这样后端仍然看到 `/login`、`/ws` 等根路径。

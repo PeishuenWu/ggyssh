@@ -488,6 +488,7 @@ func handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"enabled":             globalConfig.WebAuthn.Enabled,
 		"bootstrap_available": bootstrapAvailable(),
+		"sso_enabled":         globalConfig.SSO.Enabled,
 	}
 	if user, ok := currentWebUser(r); ok {
 		resp["authenticated"] = true
