@@ -285,6 +285,9 @@
                 <label class="form-check-label small text-secondary" for="remember_me">Remember Me</label>
             </div>
 
+            <button id="security-key-login-btn" class="btn btn-outline-info w-100 py-2 mb-2 hidden" onclick="webauthnLogin()">
+                <i class="bi bi-key-fill me-2"></i>Use Security Key
+            </button>
             <button class="btn btn-primary w-100 py-2" onclick="connect()">
                 <i class="bi bi-plug-fill me-2"></i>Connect
             </button>
@@ -487,6 +490,13 @@
                 ssoEnabled = !!data.sso_enabled;
                 const gate = document.getElementById('auth-gate');
                 const form = document.getElementById('ssh-login-form');
+                const keyButton = document.getElementById('security-key-login-btn');
+                if (keyButton) {
+                    keyButton.classList.toggle('hidden', !webauthnEnabled);
+                    keyButton.innerHTML = ssoEnabled
+                        ? '<i class="bi bi-key-fill me-2"></i>Use Security Key SSO'
+                        : '<i class="bi bi-key-fill me-2"></i>Use Security Key';
+                }
                 if (!webauthnEnabled || data.authenticated) {
                     gate.classList.add('hidden');
                     form.classList.remove('hidden');
