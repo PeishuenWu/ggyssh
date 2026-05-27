@@ -35,12 +35,12 @@
             <div class="panel-b">
                 <div id="locked-copy" class="mb-3">
                     <div class="fw-semibold mb-1">Admin is locked</div>
-                    <div class="small muted">Use an admin security key to unlock management. First-time setup requires opening this page with the bootstrap token.</div>
+                    <div class="small muted">Use an admin security key to unlock management. First-time setup requires opening this page with the bootstrap token. After the first key is registered, only WebAuthn is required.</div>
                 </div>
                 <button id="btn-login-key" class="btn btn-primary me-2" onclick="loginSecurityKey()"><i class="bi bi-key-fill me-1"></i>Use Security Key</button>
                 <button id="btn-register-key" class="btn btn-outline-success" onclick="registerSecurityKey()"><i class="bi bi-plus-lg me-1"></i>Register Security Key</button>
                 <input id="new-key-name" class="form-control mt-3 hidden" placeholder="Security key name, e.g. YubiKey 5C NFC">
-                <div id="register-help" class="small muted mt-2 hidden">First key registration is available only after the admin/bootstrap token gate succeeds and no key exists yet. Additional keys require an unlocked admin session.</div>
+                <div id="register-help" class="small muted mt-2 hidden">First key registration is available only after the admin/bootstrap token gate succeeds and no key exists yet. Additional keys require only an unlocked admin session.</div>
             </div>
         </div>
 
@@ -126,7 +126,7 @@
             document.getElementById('keys-panel').classList.toggle('hidden', !authenticated);
             document.getElementById('audit-panel').classList.toggle('hidden', !authenticated);
             if (!authenticated && !bootstrap && !adminGate) {
-                notice('Open /admin/?token=... to pass the admin token gate, then use a registered security key.', true);
+                notice('Open /admin/?token=... to pass the bootstrap token gate, then register the first admin security key.', true);
             } else if (!authenticated && !bootstrap) {
                 notice('Use a registered admin security key to unlock management.');
             }

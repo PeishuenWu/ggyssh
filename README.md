@@ -73,11 +73,13 @@ printf '%s' 'your-long-random-token' | sha256sum
 4. 按 `Register Security Key`，触碰安全金钥完成注册。
 5. 后续新增金钥必须先通过既有 admin security key，再进入 `/admin/` 注册。
 
-`/admin/` 的管理 API 需要同时满足：
+首次注册完成前，`/admin/` 的管理 API 需要同时满足：
 
 - admin token gate cookie 尚未过期。
 - 已通过 WebAuthn。
 - 使用者角色为 `admin`。
+
+注册完第一把安全金钥后，若 `token_required=true`，admin token gate 仅用于 bootstrap；后续管理操作只需要已通过 WebAuthn 的 `admin` 会话。
 
 登入成功、失败、admin token gate、金钥注册、金钥停用等事件会写入 SQLite audit log，并可在 `/admin/` 查看。
 

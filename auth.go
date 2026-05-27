@@ -414,7 +414,7 @@ func requireWebAuth(next http.Handler) http.Handler {
 }
 
 func adminGateOK(r *http.Request) bool {
-	if !globalConfig.Admin.TokenRequired {
+	if !adminGateRequired() {
 		return true
 	}
 	cookie, err := r.Cookie(adminGateCookie)
@@ -427,13 +427,17 @@ func adminGateOK(r *http.Request) bool {
 	return err == nil && n > 0
 }
 
+func adminGateRequired() bool {
+	return globalConfig.Admin.TokenRequired && bootstrapAvailable()
+}
+
 func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !globalConfig.WebAuthn.Enabled || !globalConfig.Admin.Enabled {
 			http.NotFound(w, r)
 			return
 		}
-		if !adminGateOK(r) {
+		if adminGateRequired() && !adminGateOK(r) {
 			http.Error(w, "admin token required", http.StatusUnauthorized)
 			return
 		}
@@ -456,7 +460,7 @@ func handleAdminGate(w http.ResponseWriter, r *http.Request) {
 	if bootstrapAvailable() && globalConfig.Admin.BootstrapTokenHash != "" {
 		hash = globalConfig.Admin.BootstrapTokenHash
 	}
-	if globalConfig.Admin.TokenRequired && !adminGateOK(r) {
+	if adminGateRequired() && !adminGateOK(r) {
 		if !verifyConfiguredToken(token, hash) {
 			audit(r, "", "admin_token_failed", false, "")
 			http.Error(w, "invalid admin token", http.StatusUnauthorized)
@@ -571,7 +575,7 @@ func canRegisterKey(r *http.Request) bool {
 		return true
 	}
 	user, ok := currentWebUser(r)
-	return ok && user.Role == "admin" && adminGateOK(r)
+	return ok && user.Role == "admin"
 }
 
 func handleAuthRegisterBegin(w http.ResponseWriter, r *http.Request) {
